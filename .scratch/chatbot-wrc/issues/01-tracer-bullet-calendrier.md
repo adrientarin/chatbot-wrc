@@ -20,7 +20,7 @@ Spec : `.scratch/chatbot-wrc/spec.md`. Source de données : ADR 0001.
 - [x] Le prompt système de base établit la personnalité (français, tutoiement, enthousiaste mais factuel, neutre) et la règle : une donnée ne vient que d'un outil, et sa fraîcheur est toujours indiquée.
 - [x] Des fixtures JSON réelles (liste des saisons, détail de la saison en cours) sont enregistrées une fois depuis l'API.
 - [x] Des tests automatiques, sans réseau, passent par l'outil `calendrier()` avec un faux transport et une fausse horloge, et couvrent : le statut des rallyes selon la date, le cache valide et expiré, le repli sur la donnée périmée, l'absence de donnée, le basculement de saison.
-- [ ] Démonstration : dans le chat, « C'est quand le prochain rallye ? » renvoie le bon rallye avec la fraîcheur de la donnée.
+- [x] Démonstration : dans le chat, « C'est quand le prochain rallye ? » renvoie le bon rallye avec la fraîcheur de la donnée.
 
 ## Comments
 
@@ -28,4 +28,4 @@ Spec : `.scratch/chatbot-wrc/spec.md`. Source de données : ADR 0001.
 
 **Interprétation du basculement de saison** : la saison en cours est celle de l'année civile. Si son calendrier n'est pas encore publié (début janvier), c'est la précédente. Elle ne cède la place à la suivante qu'une fois **tous ses rallyes passés** et la suivante publiée. Sans cette condition, le calendrier 2027 déjà publié par la source (15 rallyes) aurait fait basculer la saison en plein milieu de 2026. Au 2026-10-27, la source ne publie que 13 rallyes pour 2026, tous terminés (le dernier est la Sardaigne, 1er–4 octobre). Le chatbot considère donc 2027 comme la saison en cours, et le prochain rallye est le Monte-Carlo (21–24 janvier 2027). Juste après le basculement, l'outil renvoie aussi la saison qui vient de se terminer (`saison_terminee`), pour répondre à « le dernier rallye ». Règle validée le 2026-10-27 et reportée dans `spec.md` (section « Saison en cours »).
 
-**Démonstration** : à faire à la main une fois la clé renseignée dans `.env` (aucune clé n'était disponible pendant l'implémentation). Vérifié pendant l'implémentation : l'outil `calendrier()` contre la vraie API (saison 2027, Monte-Carlo à venir), la boucle de l'agent avec un faux client (appel d'outil, historique, refus), et le démarrage de Streamlit (serveur lancé, `/_stcore/health` répond `ok`).
+**Démonstration** : faite à la main le 2026-10-28, avec la clé renseignée dans `.env` : le chat répond correctement. Vérifié pendant l'implémentation : l'outil `calendrier()` contre la vraie API (saison 2027, Monte-Carlo à venir), la boucle de l'agent avec un faux client (appel d'outil, historique, refus), et le démarrage de Streamlit (serveur lancé, `/_stcore/health` répond `ok`).
