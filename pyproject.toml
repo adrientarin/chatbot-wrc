@@ -1,0 +1,29 @@
+[project]
+name = "chatbot-wrc"
+version = "0.1.0"
+description = "Un chatbot passionné de rallye qui répond en français sur la saison en cours du WRC."
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=2.3",
+    "streamlit>=1.66",
+    "python-dotenv>=1.0",
+    "tzdata>=2024.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "mypy>=1.10"]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+
+[tool.mypy]
+strict = true
+files = ["src", "tests"]
