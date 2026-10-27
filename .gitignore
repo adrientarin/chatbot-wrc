@@ -1,0 +1,28 @@
+# Secrets (clé API Anthropic)
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Cache local des données WRC
+cache/
+
+# Streamlit (secrets locaux)
+.streamlit/secrets.toml
+
+# Éditeurs et système
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
