@@ -143,7 +143,9 @@ Un chatbot local, en français, passionné de rallye, à qui je pose des questio
 
 ### Saison en cours
 
-- La saison en cours est celle de l'année civile, jusqu'à ce que la source publie le calendrier de la saison suivante. Elle bascule alors sur cette nouvelle saison. Le chatbot peut encore répondre sur la saison qui vient de se terminer.
+- La saison en cours est celle de l'année civile. Tant que son calendrier n'est pas publié (début janvier), c'est la saison précédente.
+- Elle ne bascule sur la saison suivante qu'une fois **tous ses rallyes passés** et le calendrier de la suivante publié. Un calendrier suivant publié en cours de saison ne fait donc pas basculer.
+- Juste après le basculement, le chatbot peut encore répondre sur la saison qui vient de se terminer (par exemple « le dernier rallye »).
 - Le calendrier est présenté tel que la source le publie, sans être complété de mémoire.
 
 ### Règles de comportement (prompt système)
