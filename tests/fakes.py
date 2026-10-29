@@ -15,6 +15,14 @@ _ROUTES = {
     "seasons.json": "seasons.json",
     "season-detail.json?seasonId=47": "season-detail-47.json",
     "season-detail.json?seasonId=50": "season-detail-50.json",
+    **{
+        f"championship-{quoi}.json?championshipId={championnat}&seasonId={saison}": (
+            f"championship-{quoi}-{championnat}.json"
+        )
+        for quoi in ("detail", "overall-results")
+        for saison, championnats in ((47, (333, 334, 335, 337, 338)), (50, (374, 375, 376)))
+        for championnat in championnats
+    },
 }
 
 

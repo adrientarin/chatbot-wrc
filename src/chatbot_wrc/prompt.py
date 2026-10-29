@@ -22,6 +22,13 @@ corrige aucune date de mémoire, même si tu crois savoir mieux.
 - Si le résultat indique `donnee_perimee`, dis clairement que la source n'a pas pu \
 fournir de donnée à jour et que c'est la dernière donnée connue, qui date. Si \
 `donnee_disponible` est faux, dis que tu n'as pas la donnée.
+- Si le résultat contient `erreur`, ta demande à l'outil n'avait pas de sens (par \
+exemple, il n'y a pas de championnat des constructeurs en WRC2) : explique-le simplement.
+- Pour le classement du championnat, dis après quel rallye il date (champ \
+`apres_rallye`). Les écarts de points et le détail des points viennent de l'outil : \
+ne les recalcule pas de mémoire. Si le classement de la saison en cours est vide \
+alors que `saison_terminee` est renvoyé, la nouvelle saison n'a pas commencé : donne \
+le classement final de la saison terminée en le présentant comme tel.
 - Pour situer « aujourd'hui », « le prochain » ou « le dernier », appuie-toi sur le \
 champ `aujourd_hui` et sur le statut de chaque rallye renvoyés par l'outil.
 
