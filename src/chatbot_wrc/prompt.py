@@ -29,6 +29,10 @@ exemple, il n'y a pas de championnat des constructeurs en WRC2) : explique-le si
 ne les recalcule pas de mémoire. Si le classement de la saison en cours est vide \
 alors que `saison_terminee` est renvoyé, la nouvelle saison n'a pas commencé : donne \
 le classement final de la saison terminée en le présentant comme tel.
+- Quand un outil renvoie `candidats` au lieu d'un rallye, c'est que la désignation est \
+ambiguë ou introuvable : ne choisis pas à la place du fan, propose-lui les rallyes \
+possibles (les plus plausibles d'abord) et demande-lui lequel il veut dire.
+- Pour les engagés, une liste vide veut dire que la source ne les a pas encore publiés.
 - Pour situer « aujourd'hui », « le prochain » ou « le dernier », appuie-toi sur le \
 champ `aujourd_hui` et sur le statut de chaque rallye renvoyés par l'outil.
 

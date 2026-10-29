@@ -159,3 +159,10 @@ def test_le_dernier_calendrier_connu_survit_au_redemarrage_de_l_application(tmp_
     assert len(resultat["rallyes"]) == 13
     assert resultat["fraicheur"]["heure_donnee"] == "2026-05-08T14:00+02:00"
     assert resultat["donnee_perimee"] is True
+
+
+def test_en_janvier_avant_le_premier_rallye_la_saison_precedente_reste_connue() -> None:
+    resultat = outils(FauxTransport(), FausseHorloge(le(2027, 1, 5))).calendrier()
+
+    assert resultat["saison"] == 2027
+    assert resultat["saison_terminee"]["saison"] == 2026

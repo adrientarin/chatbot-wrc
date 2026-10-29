@@ -27,6 +27,8 @@ __all__ = [
     "ClassementChampionnat",
     "ClassementsChampionnat",
     "DonneeIndisponible",
+    "Engages",
+    "Equipage",
     "Fraicheur",
     "LigneChampionnat",
     "PointsRallye",
@@ -71,6 +73,7 @@ class Statut(StrEnum):
 
 @dataclass(frozen=True)
 class Rallye:
+    saison: int
     numero: int
     nom: str
     pays: str
@@ -111,6 +114,23 @@ class Calendrier:
     en_cours: Saison
     # La saison qui vient de se terminer, juste après le basculement sur la suivante.
     terminee: Saison | None
+    fraicheur: Fraicheur
+
+
+@dataclass(frozen=True)
+class Equipage:
+    numero: str
+    pilote: str
+    copilote: str | None
+    voiture: str
+    categorie: Categorie
+    constructeur: str | None
+    equipe: str | None
+
+
+@dataclass(frozen=True)
+class Engages:
+    equipages: list[Equipage]
     fraicheur: Fraicheur
 
 
@@ -201,6 +221,10 @@ class SourceWRC:
             suivante = Saison(annee + 1, publiee(annee + 1))
             if suivante.rallyes:
                 en_cours, terminee = suivante, en_cours
+        elif all(r.statut(aujourdhui) == Statut.A_VENIR for r in en_cours.rallyes):
+            # En janvier, avant le premier rallye, la saison précédente reste connue.
+            precedente = Saison(annee - 1, publiee(annee - 1))
+            terminee = precedente if precedente.rallyes else None
         return Calendrier(en_cours, terminee, Fraicheur.combiner(lectures))
 
     def classement_championnat(
@@ -248,6 +272,25 @@ class SourceWRC:
         terminee = None if calendrier.terminee is None else classement(calendrier.terminee.annee)
         return ClassementsChampionnat(en_cours, terminee, Fraicheur.combiner(lectures))
 
+    def engages(self, rallye: Rallye) -> Engages:
+        """Les équipages engagés en WRC1 et WRC2 sur un rallye du calendrier."""
+        saisons = _lire_saisons(self._lire_liste_saisons().valeur)
+        lecture_saison = self._lire_saison(saisons[rallye.saison])
+        id_evenement = _lire_evenements(lecture_saison.valeur)[rallye.numero]
+        evenement = self._lire(
+            f"event-{id_evenement}", f"events/{id_evenement}.json", _lire_rallye_principal
+        )
+        id_rallye = _lire_rallye_principal(evenement.valeur)
+        engages = self._lire(
+            f"entries-{id_evenement}-{id_rallye}",
+            f"events/{id_evenement}/rallies/{id_rallye}/entries.json",
+            _lire_equipages,
+        )
+        return Engages(
+            _lire_equipages(engages.valeur),
+            Fraicheur.combiner([lecture_saison, evenement, engages]),
+        )
+
     def _lire_liste_saisons(self) -> Lecture:
         return self._lire("seasons", "seasons.json", _lire_saisons)
 
@@ -285,6 +328,7 @@ def _lire_rallyes(brut: Any) -> list[Rallye]:
         evenement = manche_api["event"]
         rallyes.append(
             Rallye(
+                saison=int(brut["year"]),
                 numero=int(manche_api["order"]),
                 nom=evenement["name"],
                 pays=evenement["country"]["name"],
@@ -294,6 +338,49 @@ def _lire_rallyes(brut: Any) -> list[Rallye]:
             )
         )
     return sorted(rallyes, key=lambda r: r.numero)
+
+
+def _lire_evenements(brut: Any) -> dict[int, int]:
+    """Numéro du rallye dans la saison -> identifiant de l'événement dans l'API."""
+    return {int(m["order"]): int(m["eventId"]) for m in brut["seasonRounds"]}
+
+
+def _lire_rallye_principal(brut: Any) -> int:
+    """Un événement de l'API (« event ») contient un ou plusieurs « rallies » ; seul le
+    principal correspond à notre rallye."""
+    principaux = [int(r["rallyId"]) for r in brut["rallies"] if r["isMain"]]
+    if len(principaux) != 1:
+        raise ValueError(f"{len(principaux)} rallyes principaux")
+    return principaux[0]
+
+
+# La catégorie d'un engagé se lit dans sa priorité FIA : P1 pour les voitures Rally1
+# (WRC1), P2 pour les voitures Rally2 inscrites en WRC2. Les autres (Rally2 sans
+# priorité, Rally3 et au-delà) ne sont pas suivis.
+_CATEGORIES_ENGAGES = {"P1": Categorie.WRC1, "P2": Categorie.WRC2}
+
+
+def _lire_equipages(brut: Any) -> list[Equipage]:
+    equipages = []
+    for engage in sorted(brut, key=lambda e: int(e["entryListOrder"])):
+        categorie = _CATEGORIES_ENGAGES.get(engage["priority"])
+        if categorie is None:
+            continue
+        copilote = engage["codriver"]
+        constructeur = engage["manufacturer"]
+        equipe = engage["entrant"]
+        equipages.append(
+            Equipage(
+                numero=engage["identifier"],
+                pilote=engage["driver"]["fullName"],
+                copilote=None if copilote is None else copilote["fullName"],
+                voiture=engage["vehicleModel"],
+                categorie=categorie,
+                constructeur=None if constructeur is None else constructeur["name"],
+                equipe=None if equipe is None else equipe["name"],
+            )
+        )
+    return equipages
 
 
 def _lire_championnats(brut: Any) -> dict[str, int]:

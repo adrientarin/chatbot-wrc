@@ -12,12 +12,14 @@ from anthropic.types.beta import BetaToolParam
 
 from chatbot_wrc.cache import Cache
 from chatbot_wrc.horloge import Horloge
+from chatbot_wrc.resolution import resoudre_rallye
 from chatbot_wrc.source_wrc import (
     CHAMPIONNATS,
     Categorie,
     ClassementChampionnat,
     DonneeIndisponible,
     Fraicheur,
+    Rallye,
     Saison,
     SourceWRC,
     TypeChampionnat,
@@ -76,6 +78,28 @@ DEFINITIONS: list[BetaToolParam] = [
         },
         "strict": True,
     },
+    {
+        "name": "engages",
+        "description": (
+            "Les équipages engagés sur un rallye de la saison en cours du WRC, en WRC1 et "
+            "WRC2 (les autres catégories sont filtrées) : pour chacun, le numéro de la "
+            "voiture, le pilote, le copilote, la voiture, la catégorie, le constructeur de "
+            "la voiture et l'équipe qui l'engage, plus le rallye reconnu, la fraîcheur et "
+            "l'indicateur de donnée périmée. Une liste vide veut dire que la source n'a pas "
+            "encore publié les engagés. Le rallye se désigne en texte libre, tel que "
+            "l'utilisateur l'a dit : nom, pays ou ville (« Portugal », « le Monte-Carlo », "
+            "« Sardaigne ») ou repère relatif (« en cours », « dernier », « prochain », "
+            "« ce week-end »). Si la désignation est ambiguë ou introuvable, aucun rallye "
+            "n'est choisi : `candidats` liste les rallyes possibles."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"rallye": {"type": "string"}},
+            "required": ["rallye"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
 ]
 
 
@@ -91,6 +115,8 @@ class Outils:
             return self.classement_championnat(
                 str(arguments.get("categorie", "")), str(arguments.get("type", ""))
             )
+        if nom == "engages":
+            return self.engages(str(arguments.get("rallye", "")))
         raise ValueError(f"outil inconnu : {nom}")
 
     def calendrier(self) -> dict[str, Any]:
@@ -120,22 +146,61 @@ class Outils:
             resultat["saison_terminee"] = _classement_championnat(classements.terminee)
         return resultat | _etat_donnee(classements.fraicheur)
 
+    def engages(self, rallye: str) -> dict[str, Any]:
+        try:
+            calendrier = self._source.calendrier()
+        except DonneeIndisponible:
+            return _indisponible("le calendrier")
+        aujourdhui = self._source.aujourdhui()
+        resolution = resoudre_rallye(rallye, calendrier, aujourdhui)
+        if resolution.rallye is None:
+            return {
+                "rallye_non_resolu": rallye,
+                "candidats": [_rallye(r, aujourdhui) for r in resolution.candidats],
+            } | _etat_donnee(calendrier.fraicheur)
+        designe = {"rallye": _rallye(resolution.rallye, aujourdhui)}
+        try:
+            engages = self._source.engages(resolution.rallye)
+        except DonneeIndisponible:
+            return designe | _indisponible("les engagés de ce rallye")
+        return designe | {
+            "equipages": [
+                {
+                    "numero": e.numero,
+                    "pilote": e.pilote,
+                    "copilote": e.copilote,
+                    "voiture": e.voiture,
+                    "categorie": str(e.categorie),
+                    "constructeur": e.constructeur,
+                    "equipe": e.equipe,
+                }
+                for e in engages.equipages
+            ],
+        } | _etat_donnee(Fraicheur.combiner([calendrier.fraicheur, engages.fraicheur]))
+
 
 def _saison(saison: Saison, aujourdhui: date) -> dict[str, Any]:
     return {
         "saison": saison.annee,
         "rallyes": [
-            {
-                "numero": r.numero,
-                "nom": r.nom,
-                "pays": r.pays,
-                "lieu": r.lieu,
-                "debut": r.debut.isoformat(),
-                "fin": r.fin.isoformat(),
-                "statut": str(r.statut(aujourdhui)),
-            }
-            for r in saison.rallyes
+            _rallye_de_la_saison(r, aujourdhui) for r in saison.rallyes
         ],
+    }
+
+
+def _rallye(rallye: Rallye, aujourdhui: date) -> dict[str, Any]:
+    return {"saison": rallye.saison, **_rallye_de_la_saison(rallye, aujourdhui)}
+
+
+def _rallye_de_la_saison(rallye: Rallye, aujourdhui: date) -> dict[str, Any]:
+    return {
+        "numero": rallye.numero,
+        "nom": rallye.nom,
+        "pays": rallye.pays,
+        "lieu": rallye.lieu,
+        "debut": rallye.debut.isoformat(),
+        "fin": rallye.fin.isoformat(),
+        "statut": str(rallye.statut(aujourdhui)),
     }
 
 

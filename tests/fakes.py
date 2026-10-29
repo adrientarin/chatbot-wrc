@@ -23,6 +23,17 @@ _ROUTES = {
         for saison, championnats in ((47, (333, 334, 335, 337, 338)), (50, (374, 375, 376)))
         for championnat in championnats
     },
+    **{
+        route: fichier
+        for evenement, rallye in ((635, 703), (640, 708), (647, 715), (698, 781))
+        for route, fichier in (
+            (f"events/{evenement}.json", f"event-{evenement}.json"),
+            (
+                f"events/{evenement}/rallies/{rallye}/entries.json",
+                f"entries-{evenement}-{rallye}.json",
+            ),
+        )
+    },
 }
 
 
