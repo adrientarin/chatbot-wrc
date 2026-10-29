@@ -1,6 +1,6 @@
 """Résolution des désignations : du texte libre aux entités du domaine.
 
-Déterministe : à texte, calendrier et date égaux, même réponse. Quand la désignation
+Déterministe : à texte et données égaux (calendrier, date, pilotes), même réponse. Quand la désignation
 est ambiguë ou introuvable, elle renvoie les candidats plutôt qu'un choix arbitraire.
 """
 
@@ -117,6 +117,83 @@ def _mots_du_rallye(rallye: Rallye) -> set[str]:
     texte = " ".join([rallye.nom, rallye.pays, rallye.lieu])
     francais = [nom for cle, nom in _NOMS_FRANCAIS.items() if cle in texte]
     return set(_normaliser(" ".join([texte, *francais])).split())
+
+
+# Les surnoms courants des pilotes, avec le nom complet qu'ils désignent.
+_SURNOMS = {
+    "seb": "sebastien ogier",
+    "taka": "takamoto katsuta",
+    "jml": "jari matti latvala",
+    "olly": "oliver solberg",
+    "elf": "elfyn evans",
+}
+
+# Le nombre de noms proches proposés quand un pilote est introuvable.
+_PROPOSITIONS = 5
+
+
+@dataclass(frozen=True)
+class ResolutionPilote:
+    # Le nom du pilote désigné, s'il n'y en a qu'un.
+    pilote: str | None
+    # Sinon, les pilotes parmi lesquels choisir.
+    candidats: list[str]
+
+
+def resoudre_pilote(texte: str, pilotes: list[str]) -> ResolutionPilote:
+    """Le pilote désigné par son prénom, son nom ou un surnom courant, parmi les noms
+    complets donnés.
+
+    Chaque mot du texte doit désigner un mot du nom, exactement ou, à défaut, à une
+    faute de frappe près. Introuvable, il renvoie les noms les plus proches.
+    """
+    mots = {m for mot in _normaliser(texte).split() for m in _SURNOMS.get(mot, mot).split()}
+    noms = {p: _normaliser(p).split() for p in pilotes}
+    for correspond in (_egal, _proche):
+        trouves = [
+            p for p, mots_du_nom in noms.items()
+            if mots and all(any(correspond(m, n) for n in mots_du_nom) for m in mots)
+        ]
+        if len(trouves) == 1:
+            return ResolutionPilote(trouves[0], [])
+        if trouves:
+            return ResolutionPilote(None, trouves)
+    ecart = {
+        p: sum(min(_distance(m, n) for n in mots_du_nom) for m in mots)
+        for p, mots_du_nom in noms.items()
+    }
+    return ResolutionPilote(None, sorted(pilotes, key=lambda p: ecart[p])[:_PROPOSITIONS])
+
+
+def _egal(mot: str, mot_du_nom: str) -> bool:
+    return mot == mot_du_nom
+
+
+def _proche(mot: str, mot_du_nom: str) -> bool:
+    """Une faute de frappe légère : une lettre en trop, en moins, changée ou deux
+    lettres inversées (deux fautes pour un mot long). Pas de faute sur un mot court."""
+    tolerance = 0 if len(mot) < 4 else 1 if len(mot) < 8 else 2
+    return _distance(mot, mot_du_nom) <= tolerance
+
+
+def _distance(a: str, b: str) -> int:
+    """La distance de Damerau-Levenshtein restreinte (une transposition compte pour un)."""
+    d = [[i + j if i * j == 0 else 0 for j in range(len(b) + 1)] for i in range(len(a) + 1)]
+    for i in range(1, len(a) + 1):
+        for j in range(1, len(b) + 1):
+            d[i][j] = min(
+                d[i - 1][j] + 1,
+                d[i][j - 1] + 1,
+                d[i - 1][j - 1] + (a[i - 1] != b[j - 1]),
+            )
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1)
+    return d[len(a)][len(b)]
+
+
+def meme_nom(a: str, b: str) -> bool:
+    """Vrai si les deux noms ne diffèrent que par les accents, la casse ou la ponctuation."""
+    return _normaliser(a) == _normaliser(b)
 
 
 def _normaliser(texte: str) -> str:

@@ -12,13 +12,14 @@ from anthropic.types.beta import BetaToolParam
 
 from chatbot_wrc.cache import Cache
 from chatbot_wrc.horloge import Horloge
-from chatbot_wrc.resolution import resoudre_rallye
+from chatbot_wrc.resolution import meme_nom, resoudre_pilote, resoudre_rallye
 from chatbot_wrc.source_wrc import (
     CHAMPIONNATS,
     Categorie,
     ClassementChampionnat,
     DonneeIndisponible,
     Fraicheur,
+    LigneChampionnat,
     Rallye,
     Saison,
     SourceWRC,
@@ -100,6 +101,33 @@ DEFINITIONS: list[BetaToolParam] = [
         },
         "strict": True,
     },
+    {
+        "name": "fiche_pilote",
+        "description": (
+            "La fiche d'un pilote WRC1 ou WRC2 de la saison en cours du WRC : nom, "
+            "nationalité, catégorie, et, d'après les engagés de son dernier rallye disputé "
+            "(`dernier_rallye`), sa voiture, son constructeur, son équipe et son copilote "
+            "(voiture et copilote valent null si ces engagés ne sont pas disponibles). "
+            "`championnats` donne sa position, ses points et son écart au leader dans "
+            "chaque classement du championnat des pilotes où il figure : un pilote WRC2 "
+            "qui marque des points au classement du championnat WRC1 y figure aussi. Plus la "
+            "saison, la fraîcheur et l'indicateur de donnée périmée. Juste après le "
+            "passage à une nouvelle saison, tant que personne n'y est classé, la fiche "
+            "porte sur la saison qui vient de se terminer. Le pilote se désigne en texte "
+            "libre, tel que l'utilisateur l'a dit : prénom, nom ou surnom courant, avec ou "
+            "sans accents, même avec une faute de frappe (« Ogier », « Seb », « Thierry »). "
+            "Si la désignation est ambiguë, aucun pilote n'est choisi : `candidats` liste "
+            "les pilotes possibles. Si le pilote est introuvable, `candidats` liste les "
+            "noms les plus proches, qui peuvent n'avoir aucun rapport."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"nom": {"type": "string"}},
+            "required": ["nom"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
 ]
 
 
@@ -117,6 +145,8 @@ class Outils:
             )
         if nom == "engages":
             return self.engages(str(arguments.get("rallye", "")))
+        if nom == "fiche_pilote":
+            return self.fiche_pilote(str(arguments.get("nom", "")))
         raise ValueError(f"outil inconnu : {nom}")
 
     def calendrier(self) -> dict[str, Any]:
@@ -177,6 +207,103 @@ class Outils:
                 for e in engages.equipages
             ],
         } | _etat_donnee(Fraicheur.combiner([calendrier.fraicheur, engages.fraicheur]))
+
+    def fiche_pilote(self, nom: str) -> dict[str, Any]:
+        try:
+            calendrier = self._source.calendrier()
+            classements = {
+                c: self._source.classement_championnat(c, TypeChampionnat.PILOTES)
+                for c in Categorie
+            }
+        except DonneeIndisponible:
+            return _indisponible("le classement du championnat")
+        fraicheurs = [calendrier.fraicheur, *(c.fraicheur for c in classements.values())]
+        en_cours = {c: cl.en_cours for c, cl in classements.items()}
+        if not any(cl.lignes for cl in en_cours.values()):
+            # Juste après le basculement, la nouvelle saison n'a encore classé personne.
+            en_cours = {
+                c: cl.en_cours if cl.terminee is None else cl.terminee
+                for c, cl in classements.items()
+            }
+        lignes = {
+            c: {ligne.nom: ligne for ligne in classement.lignes}
+            for c, classement in en_cours.items()
+        }
+        noms = list(dict.fromkeys(n for par_nom in lignes.values() for n in par_nom))
+        resolution = resoudre_pilote(nom, noms)
+        if resolution.pilote is None:
+            return {
+                "pilote_non_resolu": nom,
+                "candidats": [
+                    {"nom": n, "categorie": str(_categorie(n, lignes))}
+                    for n in resolution.candidats
+                ],
+            } | _etat_donnee(Fraicheur.combiner(fraicheurs))
+        pilote = resolution.pilote
+        ligne = lignes[_categorie(pilote, lignes)][pilote]
+        dernier = max(
+            (r for par_nom in lignes.values() if pilote in par_nom
+             for r in par_nom[pilote].rallyes),
+            key=lambda r: r.numero,
+            default=None,
+        )
+        saison = next(iter(en_cours.values())).saison
+        rallye = None if dernier is None else next(
+            (
+                r for s in (calendrier.en_cours, calendrier.terminee)
+                if s is not None and s.annee == saison
+                for r in s.rallyes if r.numero == dernier.numero
+            ),
+            None,
+        )
+        equipage = None
+        if rallye is not None:
+            try:
+                engages = self._source.engages(rallye)
+            except DonneeIndisponible:
+                pass
+            else:
+                fraicheurs.append(engages.fraicheur)
+                equipage = next(
+                    (e for e in engages.equipages if meme_nom(e.pilote, pilote)), None
+                )
+        return {
+            "saison": saison,
+            "pilote": {
+                "nom": pilote,
+                "nationalite": ligne.nationalite,
+                # La priorité FIA de son dernier engagement fait foi, sinon ses classements.
+                "categorie": str(
+                    _categorie(pilote, lignes) if equipage is None else equipage.categorie
+                ),
+                "voiture": None if equipage is None else equipage.voiture,
+                "constructeur": ligne.constructeur if equipage is None else equipage.constructeur,
+                "equipe": ligne.equipe if equipage is None else equipage.equipe,
+                "copilote": None if equipage is None else equipage.copilote,
+                "dernier_rallye": (
+                    None if dernier is None
+                    else {"numero": dernier.numero, "rallye": dernier.rallye}
+                ),
+                "championnats": [
+                    {
+                        "categorie": str(c),
+                        "position": par_nom[pilote].position,
+                        "points": par_nom[pilote].points,
+                        "ecart_au_leader": (
+                            en_cours[c].lignes[0].points - par_nom[pilote].points
+                        ),
+                    }
+                    for c, par_nom in lignes.items()
+                    if pilote in par_nom
+                ],
+            },
+        } | _etat_donnee(Fraicheur.combiner(fraicheurs))
+
+
+def _categorie(pilote: str, lignes: dict[Categorie, dict[str, LigneChampionnat]]) -> Categorie:
+    """Un pilote classé en WRC2 court en WRC2 ; le championnat du monde des pilotes
+    (WRC1) classe aussi les pilotes WRC2 qui y marquent des points."""
+    return Categorie.WRC2 if pilote in lignes[Categorie.WRC2] else Categorie.WRC1
 
 
 def _saison(saison: Saison, aujourdhui: date) -> dict[str, Any]:

@@ -33,6 +33,11 @@ le classement final de la saison terminée en le présentant comme tel.
 ambiguë ou introuvable : ne choisis pas à la place du fan, propose-lui les rallyes \
 possibles (les plus plausibles d'abord) et demande-lui lequel il veut dire.
 - Pour les engagés, une liste vide veut dire que la source ne les a pas encore publiés.
+- Pour un pilote, la fiche vient de l'outil `fiche_pilote`. Si l'outil renvoie \
+`candidats` et qu'aucun ne correspond vraisemblablement à la demande, le pilote n'est \
+pas classé cette saison : dis-le, sans inventer sa fiche. Tu peux compléter une fiche \
+avec de la culture rallye (carrière, titres), en disant que ça vient de ta mémoire, \
+mais jamais pour une donnée de la saison (voiture, copilote, position, points).
 - Pour situer « aujourd'hui », « le prochain » ou « le dernier », appuie-toi sur le \
 champ `aujourd_hui` et sur le statut de chaque rallye renvoyés par l'outil.
 
