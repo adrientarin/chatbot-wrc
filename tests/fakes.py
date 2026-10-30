@@ -47,6 +47,27 @@ _ROUTES = {
         )
         for speciale in speciales
     },
+    **{
+        f"events/{evenement}/stages/{speciale}/results.json?rallyId={rallye}": (
+            f"results-{evenement}-{speciale}.json"
+        )
+        for evenement, rallye, speciales in (
+            (640, 708, (10976, 10982, 10990, 10998)),
+            (647, 715, (11714,)),
+        )
+        for speciale in speciales
+    },
+    **{
+        route: fichier
+        for evenement, itineraire in ((640, 1425), (647, 1495))
+        for route, fichier in (
+            (f"events/{evenement}/retirements.json", f"retirements-{evenement}.json"),
+            (
+                f"events/{evenement}/itineraries/{itineraire}.json",
+                f"itinerary-{evenement}-{itineraire}.json",
+            ),
+        )
+    },
 }
 
 

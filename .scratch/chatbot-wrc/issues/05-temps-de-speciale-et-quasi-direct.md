@@ -14,7 +14,7 @@ Spec : `.scratch/chatbot-wrc/spec.md`.
 - [x] L'outil est déclaré à l'agent, et le chatbot indique toujours après quelle spéciale et à quelle heure date la donnée.
 - [x] Des fixtures JSON réelles des spéciales et des temps d'au moins un rallye terminé, et si possible d'un rallye en cours, sont enregistrées.
 - [x] Des tests automatiques, sans réseau, passent par l'outil et couvrent chaque forme de désignation de spéciale, le filtrage par catégorie, la durée de validité courte pendant un rallye en cours et longue pour un rallye terminé (via la fausse horloge), et la spéciale pas encore disputée.
-- [ ] Démonstration : dans le chat, « Qui a gagné la Power Stage au dernier rallye ? » renvoie le bon équipage.
+- [x] Démonstration : dans le chat, « Qui a gagné la Power Stage au dernier rallye ? » renvoie le bon équipage.
 
 ## Comments
 
@@ -32,7 +32,6 @@ Spec : `.scratch/chatbot-wrc/spec.md`.
 
 **Connu, non traité** :
 - Les spéciales ne se désignent pas par leur nom (« Fafe 2 ») : `speciale_non_resolue` et les candidats, parmi lesquels Claude retrouve le numéro.
-- Le bloc de résolution du rallye est dupliqué entre `engages` et `temps_speciale` : à extraire avec `classement_rallye` (ticket 06).
 - Un rallye fini un dimanche soir après minuit à Paris (fuseau lointain) serait compté comme terminé trop tôt.
 
-**Vérifié pendant l'implémentation** : l'outil contre la vraie API (Power Stage de la Sardaigne : Neuville ; ES7 WRC2 du Portugal ; Monte-Carlo 2027 sans spéciales publiées). Reste la démonstration dans le chat, avec la clé.
+**Vérifié pendant l'implémentation** : l'outil contre la vraie API (Power Stage de la Sardaigne : Neuville ; ES7 WRC2 du Portugal ; Monte-Carlo 2027 sans spéciales publiées). Démonstration faite avec le ticket 06, dans l'agent réel : Neuville et Wydaeghe sur la Power Stage de la Sardaigne.

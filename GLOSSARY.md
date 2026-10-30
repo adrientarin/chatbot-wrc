@@ -31,6 +31,9 @@ _À éviter_ : ES (seulement en abréviation devant un numéro), stage, étape
 **Power Stage** :
 La dernière spéciale d'un rallye, qui rapporte des points bonus au classement du championnat.
 
+**Contrôle** :
+Un point de l'itinéraire d'un rallye où passe un équipage : pointage (TC) avant une spéciale ou à un regroupement, départ (SS) et arrivée (SF) d'une spéciale. Un abandon est noté à un contrôle.
+
 **Équipage** :
 Le binôme pilote et copilote qui partage une voiture sur un rallye.
 _À éviter_ : voiture, concurrent

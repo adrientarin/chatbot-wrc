@@ -6,8 +6,9 @@ format JSON de l'API.
 
 import json
 import re
+from collections import defaultdict
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from typing import Any
@@ -22,16 +23,19 @@ VALIDITE_LONGUE = timedelta(hours=24)
 VALIDITE_COURTE = timedelta(minutes=1)
 
 __all__ = [
+    "Abandon",
     "CHAMPIONNATS",
     "Calendrier",
     "Categorie",
     "ClassementChampionnat",
+    "ClassementRallye",
     "ClassementsChampionnat",
     "DonneeIndisponible",
     "Engages",
     "Equipage",
     "Fraicheur",
     "LigneChampionnat",
+    "LigneRallye",
     "PointsRallye",
     "Rallye",
     "Saison",
@@ -189,6 +193,10 @@ class ClassementsChampionnat:
     fraicheur: Fraicheur
 
 
+def _code_speciale(numero: int) -> str:
+    return f"ES{numero}"
+
+
 @dataclass(frozen=True)
 class Speciale:
     numero: int
@@ -201,7 +209,7 @@ class Speciale:
 
     @property
     def code(self) -> str:
-        return f"ES{self.numero}"
+        return _code_speciale(self.numero)
 
     @property
     def disputee(self) -> bool:
@@ -231,6 +239,36 @@ class TempsEquipage:
 @dataclass(frozen=True)
 class TempsSpeciale:
     temps: list[TempsEquipage]
+    fraicheur: Fraicheur
+
+
+@dataclass(frozen=True)
+class LigneRallye:
+    equipage: Equipage
+    # Le cumul des temps, pénalités incluses.
+    temps_ms: int
+    penalite_ms: int
+    # Le code de la spéciale de l'abandon d'un équipage reparti en Super Rally.
+    super_rally_depuis: str | None
+
+
+@dataclass(frozen=True)
+class Abandon:
+    equipage: Equipage
+    # Le code de la spéciale de rattachement : celle du contrôle où l'équipage s'est
+    # arrêté, ou la précédente pour un contrôle hors spéciale (aucune avant la première).
+    speciale: str | None
+    controle: str | None
+    # Le motif tel que la source le publie, en anglais.
+    motif: str
+    # Vrai si l'équipage peut encore repartir en Super Rally.
+    peut_repartir: bool
+
+
+@dataclass(frozen=True)
+class ClassementRallye:
+    lignes: list[LigneRallye]
+    abandons: list[Abandon]
     fraicheur: Fraicheur
 
 
@@ -324,17 +362,16 @@ class SourceWRC:
 
     def engages(self, rallye: Rallye) -> Engages:
         """Les équipages engagés en WRC1 et WRC2 sur un rallye du calendrier."""
-        id_evenement, id_rallye, lectures = self._evenement(rallye)
-        engages = self._lire_engages(id_evenement, id_rallye)
+        evenement = self._evenement(rallye)
+        engages = self._lire_engages(evenement)
         return Engages(
             list(_lire_equipages(engages.valeur).values()),
-            Fraicheur.combiner([*lectures, engages]),
+            Fraicheur.combiner([*evenement.lectures, engages]),
         )
 
     def speciales(self, rallye: Rallye) -> Speciales:
         """Les spéciales d'un rallye du calendrier, dans l'ordre (vide avant leur publication)."""
-        id_evenement, _, _ = self._evenement(rallye)
-        lecture = self._speciales_du_rallye(rallye, id_evenement)
+        lecture = self._speciales_du_rallye(rallye, self._evenement(rallye))
         return Speciales(_lire_speciales(lecture.valeur), Fraicheur.combiner([lecture]))
 
     def temps_speciale(self, rallye: Rallye, numero: int) -> TempsSpeciale:
@@ -343,16 +380,16 @@ class SourceWRC:
         La fraîcheur est celle des temps et des spéciales : les engagés et le calendrier,
         gardés bien plus longtemps, ne disent rien de l'âge du résultat.
         """
-        id_evenement, id_rallye, _ = self._evenement(rallye)
-        speciales = self._speciales_du_rallye(rallye, id_evenement)
+        evenement = self._evenement(rallye)
+        speciales = self._speciales_du_rallye(rallye, evenement)
         id_speciale = _lire_ids_speciales(speciales.valeur)[numero]
         lecture = self._lire_en_direct(
             rallye,
-            f"stagetimes-{id_evenement}-{id_speciale}",
-            f"events/{id_evenement}/stages/{id_speciale}/stagetimes.json?rallyId={id_rallye}",
+            f"stagetimes-{evenement.id}-{id_speciale}",
+            f"events/{evenement.id}/stages/{id_speciale}/stagetimes.json?rallyId={evenement.id_rallye}",
             _lire_temps,
         )
-        equipages = _lire_equipages(self._lire_engages(id_evenement, id_rallye).valeur)
+        equipages = _lire_equipages(self._lire_engages(evenement).valeur)
         return TempsSpeciale(
             [
                 TempsEquipage(equipages[t.id_engage], t.temps_ms, t.statut, t.nature)
@@ -362,7 +399,68 @@ class SourceWRC:
             Fraicheur.combiner([speciales, lecture]),
         )
 
-    def _evenement(self, rallye: Rallye) -> tuple[int, int, list[Lecture]]:
+    def classement_rallye(self, rallye: Rallye, numero: int) -> ClassementRallye:
+        """Le classement du rallye après une spéciale, pour les équipages WRC1 et WRC2.
+
+        L'état de chaque équipage se lit dans la chronologie des abandons, pas dans les
+        résultats : ceux d'une spéciale passée contiennent aussi les équipages qui
+        repartiront plus tard en Super Rally. Comme pour `temps_speciale`, la fraîcheur
+        est celle des données du rallye.
+        """
+        evenement = self._evenement(rallye)
+        speciales = self._speciales_du_rallye(rallye, evenement)
+        ids_speciales = _lire_ids_speciales(speciales.valeur)
+        id_speciale = ids_speciales[numero]
+        resultats = self._lire_en_direct(
+            rallye,
+            f"results-{evenement.id}-{id_speciale}",
+            f"events/{evenement.id}/stages/{id_speciale}/results.json?rallyId={evenement.id_rallye}",
+            _lire_cumuls,
+        )
+        retraits = self._lire_en_direct(
+            rallye,
+            f"retirements-{evenement.id}",
+            f"events/{evenement.id}/retirements.json",
+            _lire_retraits,
+        )
+        itineraire = self._lire(
+            f"itinerary-{evenement.id}-{evenement.id_itineraire}",
+            f"events/{evenement.id}/itineraries/{evenement.id_itineraire}.json",
+            _lire_controles,
+        )
+        equipages = _lire_equipages(self._lire_engages(evenement).valeur)
+        controles = _rattacher(
+            _lire_controles(itineraire.valeur), {i: n for n, i in ids_speciales.items()}
+        )
+        # Sur la dernière spéciale disputée, tout ce que la source a noté a déjà eu lieu,
+        # y compris un abandon au contrôle de la spéciale suivante.
+        derniere = not any(
+            s.disputee and s.numero > numero for s in _lire_speciales(speciales.valeur)
+        )
+        situations = _situations(_lire_retraits(retraits.valeur), controles, numero, derniere)
+        en_cours = rallye.statut(self.aujourdhui()) == Statut.EN_COURS
+        return ClassementRallye(
+            [
+                LigneRallye(
+                    equipages[c.id_engage],
+                    c.temps_ms,
+                    c.penalite_ms,
+                    situations[c.id_engage].super_rally_depuis(controles),
+                )
+                for c in _lire_cumuls(resultats.valeur)
+                if c.id_engage in equipages and not situations[c.id_engage].arret
+            ],
+            [
+                _abandon(arret, equipages[arret[0].id_engage], controles, en_cours)
+                for arret in sorted(
+                    (s.arret for s in situations.values() if s.arret), key=lambda a: a[0].id
+                )
+                if arret[0].id_engage in equipages
+            ],
+            Fraicheur.combiner([speciales, resultats, retraits]),
+        )
+
+    def _evenement(self, rallye: Rallye) -> "_Evenement":
         """Les identifiants de l'événement et de son rallye principal, et leurs lectures."""
         saisons = _lire_saisons(self._lire_liste_saisons().valeur)
         lecture_saison = self._lire_saison(saisons[rallye.saison])
@@ -370,18 +468,22 @@ class SourceWRC:
         evenement = self._lire(
             f"event-{id_evenement}", f"events/{id_evenement}.json", _lire_rallye_principal
         )
-        return id_evenement, _lire_rallye_principal(evenement.valeur), [lecture_saison, evenement]
+        return _Evenement(
+            id_evenement,
+            *_lire_rallye_principal(evenement.valeur),
+            [lecture_saison, evenement],
+        )
 
-    def _lire_engages(self, id_evenement: int, id_rallye: int) -> Lecture:
+    def _lire_engages(self, evenement: "_Evenement") -> Lecture:
         return self._lire(
-            f"entries-{id_evenement}-{id_rallye}",
-            f"events/{id_evenement}/rallies/{id_rallye}/entries.json",
+            f"entries-{evenement.id}-{evenement.id_rallye}",
+            f"events/{evenement.id}/rallies/{evenement.id_rallye}/entries.json",
             _lire_equipages,
         )
 
-    def _speciales_du_rallye(self, rallye: Rallye, id_evenement: int) -> Lecture:
+    def _speciales_du_rallye(self, rallye: Rallye, evenement: "_Evenement") -> Lecture:
         return self._lire_en_direct(
-            rallye, f"stages-{id_evenement}", f"events/{id_evenement}/stages.json", _lire_speciales
+            rallye, f"stages-{evenement.id}", f"events/{evenement.id}/stages.json", _lire_speciales
         )
 
     def _lire_liste_saisons(self) -> Lecture:
@@ -461,10 +563,20 @@ def _lire_evenements(brut: Any) -> dict[int, int]:
     return {int(m["order"]): int(m["eventId"]) for m in brut["seasonRounds"]}
 
 
-def _lire_rallye_principal(brut: Any) -> int:
+@dataclass(frozen=True)
+class _Evenement:
+    id: int
+    id_rallye: int
+    id_itineraire: int
+    lectures: list[Lecture]
+
+
+def _lire_rallye_principal(brut: Any) -> tuple[int, int]:
     """Un événement de l'API (« event ») contient un ou plusieurs « rallies » ; seul le
-    principal correspond à notre rallye."""
-    principaux = [int(r["rallyId"]) for r in brut["rallies"] if r["isMain"]]
+    principal correspond à notre rallye. Renvoie ses identifiants et ceux de son itinéraire."""
+    principaux = [
+        (int(r["rallyId"]), int(r["itineraryId"])) for r in brut["rallies"] if r["isMain"]
+    ]
     if len(principaux) != 1:
         raise ValueError(f"{len(principaux)} rallyes principaux")
     return principaux[0]
@@ -553,6 +665,147 @@ def _lire_temps(brut: Any) -> list[_Temps]:
         )
         for t in brut
     ]
+
+
+@dataclass(frozen=True)
+class _Cumul:
+    id_engage: int
+    temps_ms: int
+    penalite_ms: int
+
+
+def _lire_cumuls(brut: Any) -> list[_Cumul]:
+    return [
+        _Cumul(int(c["entryId"]), int(c["totalTimeMs"]), int(c["penaltyTimeMs"])) for c in brut
+    ]
+
+
+@dataclass(frozen=True)
+class _Retrait:
+    id: int
+    id_engage: int
+    id_controle: int
+    motif: str
+    statut: str
+
+
+# Le statut d'une ligne des abandons : « Temporary » (l'équipage peut repartir en Super
+# Rally), « Permanent », et « Rejoined » pour la ligne qui note son retour.
+_ABANDON_PROVISOIRE = "Temporary"
+_REPARTI = "Rejoined"
+
+
+def _lire_retraits(brut: Any) -> list[_Retrait]:
+    return [
+        _Retrait(
+            id=int(r["retirementId"]),
+            id_engage=int(r["entryId"]),
+            id_controle=int(r["controlId"]),
+            motif=r["reason"],
+            statut=r["status"],
+        )
+        for r in brut
+    ]
+
+
+@dataclass(frozen=True)
+class _Controle:
+    id: int
+    code: str
+    id_speciale: int | None
+
+
+def _lire_controles(brut: Any) -> list[_Controle]:
+    """Tous les contrôles de l'itinéraire, dans l'ordre du rallye. La liste des spéciales
+    ne donne que les leurs : pas les regroupements ni les assistances."""
+    return [
+        _Controle(
+            int(c["controlId"]),
+            c["code"],
+            None if c["stageId"] is None else int(c["stageId"]),
+        )
+        for etape in sorted(brut["itineraryLegs"], key=lambda e: int(e["order"]))
+        for section in sorted(etape["itinerarySections"], key=lambda s: int(s["order"]))
+        for c in section["controls"]
+    ]
+
+
+@dataclass(frozen=True)
+class _Rattachement:
+    # La spéciale du contrôle, ou celle qui le précède pour un contrôle hors spéciale.
+    speciale: int | None
+    controle: str | None
+
+
+# Un contrôle absent de l'itinéraire : rien ne le situe.
+_HORS_ITINERAIRE = _Rattachement(None, None)
+
+
+def _rattacher(
+    controles: list[_Controle], numeros: dict[int, int]
+) -> dict[int, _Rattachement]:
+    rattaches = {}
+    speciale = None
+    for controle in controles:
+        if controle.id_speciale is not None:
+            speciale = numeros.get(controle.id_speciale, speciale)
+        rattaches[controle.id] = _Rattachement(speciale, controle.code)
+    return rattaches
+
+
+@dataclass
+class _Situation:
+    """Où en est un équipage après une spéciale."""
+
+    # Les lignes de l'arrêt en cours ; vide si l'équipage court.
+    arret: list[_Retrait] = field(default_factory=list)
+    # La première ligne du dernier arrêt dont il est reparti.
+    repris: _Retrait | None = None
+
+    def super_rally_depuis(self, controles: dict[int, _Rattachement]) -> str | None:
+        if self.repris is None:
+            return None
+        speciale = controles.get(self.repris.id_controle, _HORS_ITINERAIRE).speciale
+        return None if speciale is None else _code_speciale(speciale)
+
+
+def _situations(
+    retraits: list[_Retrait],
+    controles: dict[int, _Rattachement],
+    numero: int,
+    derniere: bool,
+) -> defaultdict[int, _Situation]:
+    """Par engagé, sa situation après la spéciale `numero`. Un contrôle inconnu compte
+    comme déjà passé. `derniere` dit si c'est la dernière spéciale disputée."""
+    situations: defaultdict[int, _Situation] = defaultdict(_Situation)
+    for retrait in sorted(retraits, key=lambda r: r.id):
+        situation = situations[retrait.id_engage]
+        speciale = controles.get(retrait.id_controle, _HORS_ITINERAIRE).speciale
+        if retrait.statut == _REPARTI:
+            # Le retour se note en fin d'étape : il prend effet à la spéciale suivante.
+            if situation.arret and (speciale is None or speciale < numero):
+                situation.repris, situation.arret = situation.arret[0], []
+        elif speciale is None or speciale <= numero or derniere:
+            situation.arret.append(retrait)
+    return situations
+
+
+def _abandon(
+    arret: list[_Retrait],
+    equipage: Equipage,
+    controles: dict[int, _Rattachement],
+    rallye_en_cours: bool,
+) -> Abandon:
+    """L'abandon d'un équipage : sa spéciale et son motif sont ceux du début de l'arrêt,
+    même s'il est devenu définitif plus tard dans la journée."""
+    rattachement = controles.get(arret[0].id_controle, _HORS_ITINERAIRE)
+    return Abandon(
+        equipage,
+        None if rattachement.speciale is None else _code_speciale(rattachement.speciale),
+        rattachement.controle,
+        arret[0].motif,
+        peut_repartir=rallye_en_cours and arret[-1].statut == _ABANDON_PROVISOIRE,
+    )
 
 
 def _lire_championnats(brut: Any) -> dict[str, int]:

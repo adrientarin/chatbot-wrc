@@ -4,6 +4,7 @@ Chaque résultat contient les données, leur fraîcheur et l'indicateur de donn�
 périmée (la source est injoignable ou a changé : c'est la dernière donnée connue).
 """
 
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -20,15 +21,19 @@ from chatbot_wrc.resolution import (
 )
 from chatbot_wrc.source_wrc import (
     CHAMPIONNATS,
+    Abandon,
     Categorie,
     ClassementChampionnat,
     DonneeIndisponible,
+    Equipage,
     Fraicheur,
     LigneChampionnat,
+    LigneRallye,
     Rallye,
     Saison,
     SourceWRC,
     Speciale,
+    Speciales,
     Statut,
     TempsEquipage,
     TypeChampionnat,
@@ -83,6 +88,60 @@ DEFINITIONS: list[BetaToolParam] = [
                 "type": {"type": "string", "enum": ["pilotes", "copilotes", "constructeurs"]},
             },
             "required": ["categorie", "type"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "name": "classement_rallye",
+        "description": (
+            "Le classement du rallye à un instant donné, pour les équipages WRC1 et WRC2 d'un "
+            "rallye de la saison en cours du WRC : `speciale` dit après quelle spéciale il est "
+            "arrêté, et `classement`, du premier au dernier, donne pour chaque équipage la "
+            "position, le numéro, le pilote, le copilote, la catégorie, le constructeur, le "
+            "temps cumulé, l'écart au leader et au précédent, `penalite` et `super_rally`. "
+            "Après la dernière spéciale d'un rallye terminé, c'est le classement à l'arrivée : "
+            "le premier est le vainqueur. Positions et écarts sont calculés dans la sélection : "
+            "parmi la catégorie demandée, ou parmi les équipages WRC1 et WRC2 avec `toutes` "
+            "(les équipages des autres catégories sont retirés). Le temps cumulé inclut les "
+            "pénalités : `penalite` donne leur durée totale jusqu'à cet instant, null s'il n'y "
+            "en a pas. `super_rally` est vrai pour un équipage qui a abandonné puis est reparti "
+            "sous le règlement Super Rally, et `super_rally_depuis` donne la spéciale de cet "
+            "abandon : sa position n'est pas celle d'un rallye normal. `abandons` liste à "
+            "part, hors du classement, les équipages à l'arrêt à cet instant : numéro, pilote, "
+            "copilote, catégorie, `speciale` (celle du contrôle où il s'est arrêté, ou la "
+            "précédente pour un contrôle hors spéciale, null avant la première), `controle` "
+            "(TC : pointage avant la spéciale ; SS : son départ ; SF : son arrivée ; une "
+            "lettre, comme TC2A, un contrôle hors spéciale), `motif` tel que la source le "
+            "publie, en anglais, et `peut_repartir`, vrai si l'équipage peut encore repartir "
+            "en Super Rally. Un équipage qui repart plus tard quitte `abandons` à partir de "
+            "la spéciale suivant son retour. Pour dire qui a abandonné sur tout le rallye, "
+            "compte aussi les équipages `super_rally`. `fraicheur` donne l'heure de la "
+            "donnée et `apres_speciale`, la dernière spéciale disputée du rallye, qui n'est "
+            "pas forcément celle du classement ; `donnee_perimee` signale une donnée qui date. "
+            "Le paramètre `apres_speciale` désigne l'instant en texte libre : passe le numéro "
+            "demandé (« ES12 », « spéciale 12 ») ou « la Power Stage », et « la dernière » "
+            "(la dernière spéciale disputée) si la question ne précise aucun instant. Le nom "
+            "d'une spéciale n'est pas compris : retrouve d'abord son numéro. Le rallye se désigne en texte libre, tel que "
+            "l'utilisateur l'a dit (« Portugal », « dernier », « en cours ») ; s'il n'en "
+            "précise aucun, passe « en cours » si un rallye est en cours d'après `calendrier`, "
+            "sinon « dernier ». `categorie` vaut WRC1, WRC2 ou « toutes » si la question ne "
+            "précise pas de catégorie. `pas_encore_disputee` signale une spéciale pas encore "
+            "disputée, `non_disputee` celle d'un rallye terminé, `aucune_speciale_disputee` un "
+            "rallye dont aucune spéciale n'a encore été disputée : il n'y a alors pas de "
+            "classement du rallye. Si le rallye est ambigu ou introuvable, `candidats` liste les rallyes "
+            "possibles. Si la spéciale n'existe pas, `speciale_non_resolue` est renvoyé et "
+            "`candidats` liste les spéciales du rallye (une liste vide veut dire qu'elles ne "
+            "sont pas encore publiées)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "rallye": {"type": "string"},
+                "apres_speciale": {"type": "string"},
+                "categorie": {"type": "string", "enum": ["WRC1", "WRC2", "toutes"]},
+            },
+            "required": ["rallye", "apres_speciale", "categorie"],
             "additionalProperties": False,
         },
         "strict": True,
@@ -184,8 +243,31 @@ DEFINITIONS: list[BetaToolParam] = [
 ]
 
 
-# La valeur de `categorie` qui ne filtre pas les temps d'une spéciale.
+# La valeur de `categorie` qui ne filtre pas les équipages.
 TOUTES = "toutes"
+# Le cumul des temps d'un rallye est publié au dixième, y compris après une Power Stage.
+DECIMALES_CUMUL = 1
+
+
+@dataclass(frozen=True)
+class _RallyeDesigne:
+    rallye: Rallye
+    # Le rallye tel que le résultat de l'outil le présente.
+    presentation: dict[str, Any]
+    fraicheur_calendrier: Fraicheur
+
+
+@dataclass(frozen=True)
+class _SpecialeDesignee:
+    rallye: Rallye
+    presentation: dict[str, Any]
+    speciales: Speciales
+    speciale: Speciale
+
+    @property
+    def apres(self) -> str | None:
+        """La dernière spéciale disputée du rallye."""
+        return _derniere_disputee(self.speciales)
 
 
 class Outils:
@@ -199,6 +281,12 @@ class Outils:
         if nom == "classement_championnat":
             return self.classement_championnat(
                 str(arguments.get("categorie", "")), str(arguments.get("type", ""))
+            )
+        if nom == "classement_rallye":
+            return self.classement_rallye(
+                str(arguments.get("rallye", "")),
+                arguments.get("apres_speciale"),
+                str(arguments.get("categorie", TOUTES)),
             )
         if nom == "engages":
             return self.engages(str(arguments.get("rallye", "")))
@@ -240,23 +328,14 @@ class Outils:
         return resultat | _etat_donnee(classements.fraicheur)
 
     def engages(self, rallye: str) -> dict[str, Any]:
+        designe = self._designer_rallye(rallye)
+        if isinstance(designe, dict):
+            return designe
         try:
-            calendrier = self._source.calendrier()
+            engages = self._source.engages(designe.rallye)
         except DonneeIndisponible:
-            return _indisponible("le calendrier")
-        aujourdhui = self._source.aujourdhui()
-        resolution = resoudre_rallye(rallye, calendrier, aujourdhui)
-        if resolution.rallye is None:
-            return {
-                "rallye_non_resolu": rallye,
-                "candidats": [_rallye(r, aujourdhui) for r in resolution.candidats],
-            } | _etat_donnee(calendrier.fraicheur)
-        designe = {"rallye": _rallye(resolution.rallye, aujourdhui)}
-        try:
-            engages = self._source.engages(resolution.rallye)
-        except DonneeIndisponible:
-            return designe | _indisponible("les engagés de ce rallye")
-        return designe | {
+            return designe.presentation | _indisponible("les engagés de ce rallye")
+        return designe.presentation | {
             "equipages": [
                 {
                     "numero": e.numero,
@@ -269,7 +348,7 @@ class Outils:
                 }
                 for e in engages.equipages
             ],
-        } | _etat_donnee(Fraicheur.combiner([calendrier.fraicheur, engages.fraicheur]))
+        } | _etat_donnee(Fraicheur.combiner([designe.fraicheur_calendrier, engages.fraicheur]))
 
     def fiche_pilote(self, nom: str) -> dict[str, Any]:
         try:
@@ -363,14 +442,70 @@ class Outils:
         } | _etat_donnee(Fraicheur.combiner(fraicheurs))
 
     def temps_speciale(self, rallye: str, speciale: str, categorie: str) -> dict[str, Any]:
-        filtre: Categorie | None = None
-        if categorie.strip().lower() != TOUTES:
-            try:
-                filtre = Categorie(categorie.strip().upper())
-            except ValueError:
-                return {
-                    "erreur": f"Pas de catégorie « {categorie} ». Seuls WRC1 et WRC2 sont suivis."
+        try:
+            filtre = _filtre(categorie)
+        except ValueError:
+            return _categorie_invalide(categorie)
+        designee = self._designer_speciale(rallye, speciale)
+        if isinstance(designee, dict):
+            return designee
+        disputee = designee.speciale.disputee
+        try:
+            temps = self._source.temps_speciale(designee.rallye, designee.speciale.numero)
+        except DonneeIndisponible:
+            # La source peut ne rien servir pour une spéciale sans temps. Si elle répond
+            # pour les spéciales, ce n'est pas une panne.
+            if disputee or designee.speciales.fraicheur.perimee:
+                return designee.presentation | _indisponible("les temps de cette spéciale")
+            temps = None
+        if temps is None or (not disputee and all(t.temps_ms is None for t in temps.temps)):
+            return self._non_disputee(designee) | {"temps": []}
+        selection = [t for t in temps.temps if filtre in (None, t.equipage.categorie)]
+        return designee.presentation | {
+            "speciale": _speciale(designee.speciale),
+            "categorie": TOUTES if filtre is None else str(filtre),
+            "temps": _temps(selection, designee.speciale),
+            "sans_temps": [
+                {
+                    "pilote": t.equipage.pilote,
+                    "categorie": str(t.equipage.categorie),
+                    "statut": t.statut,
                 }
+                for t in selection
+                if t.temps_ms is None and t.statut is not None
+            ],
+        } | _etat_donnee(temps.fraicheur, designee.apres)
+
+    def classement_rallye(
+        self, rallye: str, apres_speciale: str | None, categorie: str
+    ) -> dict[str, Any]:
+        try:
+            filtre = _filtre(categorie)
+        except ValueError:
+            return _categorie_invalide(categorie)
+        designee = self._designer_speciale(rallye, apres_speciale or "la dernière")
+        if isinstance(designee, dict):
+            return designee
+        if not designee.speciale.disputee:
+            return self._non_disputee(designee)
+        try:
+            classement = self._source.classement_rallye(
+                designee.rallye, designee.speciale.numero
+            )
+        except DonneeIndisponible:
+            return designee.presentation | _indisponible("le classement de ce rallye")
+        selection = [l for l in classement.lignes if filtre in (None, l.equipage.categorie)]
+        return designee.presentation | {
+            "speciale": _speciale(designee.speciale),
+            "categorie": TOUTES if filtre is None else str(filtre),
+            "classement": _classement_rallye(selection),
+            "abandons": [
+                _abandon(a) for a in classement.abandons if filtre in (None, a.equipage.categorie)
+            ],
+        } | _etat_donnee(classement.fraicheur, designee.apres)
+
+    def _designer_rallye(self, rallye: str) -> _RallyeDesigne | dict[str, Any]:
+        """Le rallye désigné, ou le résultat à renvoyer s'il ne peut pas être choisi."""
         try:
             calendrier = self._source.calendrier()
         except DonneeIndisponible:
@@ -382,13 +517,21 @@ class Outils:
                 "rallye_non_resolu": rallye,
                 "candidats": [_rallye(r, aujourdhui) for r in resolution.candidats],
             } | _etat_donnee(calendrier.fraicheur)
-        le_rallye = {"rallye": _rallye(resolution.rallye, aujourdhui)}
+        return _RallyeDesigne(
+            resolution.rallye,
+            {"rallye": _rallye(resolution.rallye, aujourdhui)},
+            calendrier.fraicheur,
+        )
+
+    def _designer_speciale(self, rallye: str, speciale: str) -> _SpecialeDesignee | dict[str, Any]:
+        """Le rallye et la spéciale désignés, ou le résultat à renvoyer sinon."""
+        designe = self._designer_rallye(rallye)
+        if isinstance(designe, dict):
+            return designe
         try:
-            speciales = self._source.speciales(resolution.rallye)
+            speciales = self._source.speciales(designe.rallye)
         except DonneeIndisponible:
-            return le_rallye | _indisponible("les spéciales de ce rallye")
-        derniere = speciales.derniere_disputee()
-        apres = None if derniere is None else derniere.code
+            return designe.presentation | _indisponible("les spéciales de ce rallye")
         resolue = resoudre_speciale(speciale, speciales)
         if resolue.speciale is None:
             non_resolue = (
@@ -396,40 +539,25 @@ class Outils:
                 if resolue.aucune_disputee
                 else {"speciale_non_resolue": speciale}
             )
-            return le_rallye | non_resolue | {
+            return designe.presentation | non_resolue | {
                 "candidats": [_speciale(s) for s in resolue.candidats],
-            } | _etat_donnee(speciales.fraicheur, apres)
-        disputee = resolue.speciale.disputee
-        try:
-            temps = self._source.temps_speciale(resolution.rallye, resolue.speciale.numero)
-        except DonneeIndisponible:
-            # La source peut ne rien servir pour une spéciale sans temps. Si elle répond
-            # pour les spéciales, ce n'est pas une panne.
-            if disputee or speciales.fraicheur.perimee:
-                return le_rallye | _indisponible("les temps de cette spéciale")
-            temps = None
-        if temps is None or (not disputee and all(t.temps_ms is None for t in temps.temps)):
-            a_venir = resolution.rallye.statut(aujourdhui) != Statut.PASSE
-            return le_rallye | {
-                "speciale": _speciale(resolue.speciale),
-                "pas_encore_disputee" if a_venir else "non_disputee": True,
-                "temps": [],
-            } | _etat_donnee(speciales.fraicheur, apres)
-        selection = [t for t in temps.temps if filtre in (None, t.equipage.categorie)]
-        return le_rallye | {
-            "speciale": _speciale(resolue.speciale),
-            "categorie": TOUTES if filtre is None else str(filtre),
-            "temps": _temps(selection, resolue.speciale),
-            "sans_temps": [
-                {
-                    "pilote": t.equipage.pilote,
-                    "categorie": str(t.equipage.categorie),
-                    "statut": t.statut,
-                }
-                for t in selection
-                if t.temps_ms is None and t.statut is not None
-            ],
-        } | _etat_donnee(temps.fraicheur, apres)
+            } | _etat_donnee(speciales.fraicheur, _derniere_disputee(speciales))
+        return _SpecialeDesignee(
+            designe.rallye, designe.presentation, speciales, resolue.speciale
+        )
+
+    def _non_disputee(self, designee: _SpecialeDesignee) -> dict[str, Any]:
+        """Le résultat pour une spéciale qui n'a pas été disputée."""
+        a_venir = designee.rallye.statut(self._source.aujourdhui()) != Statut.PASSE
+        return designee.presentation | {
+            "speciale": _speciale(designee.speciale),
+            "pas_encore_disputee" if a_venir else "non_disputee": True,
+        } | _etat_donnee(designee.speciales.fraicheur, designee.apres)
+
+
+def _derniere_disputee(speciales: Speciales) -> str | None:
+    derniere = speciales.derniere_disputee()
+    return None if derniere is None else derniere.code
 
 
 def _speciale(speciale: Speciale) -> dict[str, Any]:
@@ -443,30 +571,81 @@ def _speciale(speciale: Speciale) -> dict[str, Any]:
     }
 
 
+@dataclass(frozen=True)
+class _Classe[T]:
+    element: T
+    chrono: int
+    position: int
+    ecart_au_premier: int
+    ecart_au_precedent: int
+
+
+def _classer[T](chronos: list[tuple[T, int]]) -> list[_Classe[T]]:
+    """Du plus rapide au plus lent. Un même temps donne une même position."""
+    tries = sorted(chronos, key=lambda c: c[1])
+    classes: list[_Classe[T]] = []
+    for i, (element, chrono) in enumerate(tries):
+        precedent = tries[max(i - 1, 0)][1]
+        position = classes[-1].position if i and chrono == precedent else i + 1
+        classes.append(_Classe(element, chrono, position, chrono - tries[0][1], chrono - precedent))
+    return classes
+
+
 def _temps(temps: list[TempsEquipage], speciale: Speciale) -> list[dict[str, Any]]:
     """Les équipages classés au temps : positions et écarts sont ceux de la sélection."""
-    chronos = sorted(
-        ((t, t.temps_ms) for t in temps if t.temps_ms is not None), key=lambda c: c[1]
-    )
-    lignes: list[dict[str, Any]] = []
-    for i, (t, temps_ms) in enumerate(chronos):
-        precedent = chronos[max(i - 1, 0)][1]
-        lignes.append(
-            {
-                # Un même temps donne une même position.
-                "position": lignes[-1]["position"] if i and temps_ms == precedent else i + 1,
-                "numero": t.equipage.numero,
-                "pilote": t.equipage.pilote,
-                "copilote": t.equipage.copilote,
-                "categorie": str(t.equipage.categorie),
-                "constructeur": t.equipage.constructeur,
-                "temps": _duree(temps_ms, speciale.decimales),
-                "ecart_au_meilleur": _duree(temps_ms - chronos[0][1], speciale.decimales),
-                "ecart_au_precedent": _duree(temps_ms - precedent, speciale.decimales),
-                "nature_du_temps": t.nature,
-            }
-        )
-    return lignes
+    decimales = speciale.decimales
+    return [
+        _equipage_classe(c.element.equipage, c.position)
+        | {
+            "temps": _duree(c.chrono, decimales),
+            "ecart_au_meilleur": _duree(c.ecart_au_premier, decimales),
+            "ecart_au_precedent": _duree(c.ecart_au_precedent, decimales),
+            "nature_du_temps": c.element.nature,
+        }
+        for c in _classer([(t, t.temps_ms) for t in temps if t.temps_ms is not None])
+    ]
+
+
+def _classement_rallye(lignes: list[LigneRallye]) -> list[dict[str, Any]]:
+    """Les équipages au cumul : positions et écarts sont ceux de la sélection."""
+    return [
+        _equipage_classe(c.element.equipage, c.position)
+        | {
+            "temps": _duree(c.chrono, DECIMALES_CUMUL),
+            "ecart_au_leader": _duree(c.ecart_au_premier, DECIMALES_CUMUL),
+            "ecart_au_precedent": _duree(c.ecart_au_precedent, DECIMALES_CUMUL),
+            "penalite": (
+                _duree(c.element.penalite_ms, DECIMALES_CUMUL) if c.element.penalite_ms else None
+            ),
+            "super_rally": c.element.super_rally_depuis is not None,
+            "super_rally_depuis": c.element.super_rally_depuis,
+        }
+        for c in _classer([(l, l.temps_ms) for l in lignes])
+    ]
+
+
+def _abandon(abandon: Abandon) -> dict[str, Any]:
+    return {
+        "numero": abandon.equipage.numero,
+        "pilote": abandon.equipage.pilote,
+        "copilote": abandon.equipage.copilote,
+        "categorie": str(abandon.equipage.categorie),
+        "speciale": abandon.speciale,
+        "controle": abandon.controle,
+        "motif": abandon.motif,
+        "peut_repartir": abandon.peut_repartir,
+    }
+
+
+def _equipage_classe(equipage: Equipage, position: int) -> dict[str, Any]:
+    return {
+        "position": position,
+        "numero": equipage.numero,
+        "pilote": equipage.pilote,
+        "copilote": equipage.copilote,
+        "categorie": str(equipage.categorie),
+        "constructeur": equipage.constructeur,
+    }
 
 
 def _duree(ms: int, decimales: int) -> str:
@@ -511,6 +690,17 @@ def _rallye_de_la_saison(rallye: Rallye, aujourdhui: date) -> dict[str, Any]:
         "fin": rallye.fin.isoformat(),
         "statut": str(rallye.statut(aujourdhui)),
     }
+
+
+def _filtre(categorie: str) -> Categorie | None:
+    """La catégorie à garder, ou aucune pour `toutes` ; `ValueError` si elle n'est pas suivie."""
+    if categorie.strip().lower() == TOUTES:
+        return None
+    return Categorie(categorie.strip().upper())
+
+
+def _categorie_invalide(categorie: str) -> dict[str, Any]:
+    return {"erreur": f"Pas de catégorie « {categorie} ». Seuls WRC1 et WRC2 sont suivis."}
 
 
 def _championnat(categorie: str, type_: str) -> tuple[Categorie, TypeChampionnat] | None:
