@@ -2,17 +2,16 @@
 
 Un chatbot passionné de rallye qui répond en français sur la saison en cours du WRC. Voir `GLOSSARY.md` pour le vocabulaire, `docs/adr/` pour les décisions et `.scratch/chatbot-wrc/spec.md` pour la spec.
 
-## Installation
+## Utilisation
+
+Le chatbot est déployé sur Streamlit : https://wrc-chatbot-lmdarajjaderzrsdlm2thw.streamlit.app/
+
+## Développement local
 
 ```sh
 python -m venv .venv
 .venv/Scripts/python -m pip install -e ".[dev]"   # sous Linux/macOS : .venv/bin/python
 cp .env.example .env                               # puis renseigne ANTHROPIC_API_KEY
-```
-
-## Lancement
-
-```sh
 .venv/Scripts/python -m streamlit run src/chatbot_wrc/app.py
 ```
 
