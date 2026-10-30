@@ -5,6 +5,7 @@ Un chatbot passionné de rallye qui répond en français sur la saison en cours 
 ## Utilisation
 
 Le chatbot est déployé sur Streamlit : https://wrc-chatbot-lmdarajjaderzrsdlm2thw.streamlit.app/
+(Il y a 5$ de crédits disponible pour utiliser ce chatbot)
 
 ## Développement local
 
