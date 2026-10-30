@@ -4,6 +4,7 @@ L'historique de la conversation vit dans l'agent, le temps de la session seuleme
 """
 
 import json
+import threading
 from typing import Any
 
 import anthropic
@@ -40,8 +41,15 @@ class Agent:
         self._modele = modele
         self._rattrapage = RATTRAPAGE if modele in MODELES_AVEC_RATTRAPAGE else {}
         self._messages: list[BetaMessageParam] = []
+        self._verrou = threading.Lock()
 
     def repondre(self, question: str) -> str:
+        # Streamlit peut lancer une 2e question pendant que la 1re attend sa réponse :
+        # l'API refuse un historique où leurs appels d'outils s'entremêlent.
+        with self._verrou:
+            return self._repondre(question)
+
+    def _repondre(self, question: str) -> str:
         debut_du_tour = len(self._messages)
         self._messages.append({"role": "user", "content": question})
         while True:

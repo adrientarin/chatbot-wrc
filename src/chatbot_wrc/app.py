@@ -20,12 +20,17 @@ if "agent" not in st.session_state:
         st.stop()
     st.session_state.echanges = []
 
-for role, texte in st.session_state.echanges:
+agent = st.session_state.agent
+echanges = st.session_state.echanges
+
+for role, texte in echanges:
     st.chat_message(role).markdown(texte)
 
 if question := st.chat_input("C'est quand le prochain rallye ?"):
     st.chat_message("user").markdown(question)
     with st.chat_message("assistant"), st.spinner("Je regarde ça…"):
-        reponse = st.session_state.agent.repondre(question)
-        st.markdown(reponse)
-    st.session_state.echanges += [("user", question), ("assistant", reponse)]
+        reponse = agent.repondre(question)
+        # Une nouvelle question interrompt ce script au prochain appel à Streamlit : on
+        # enregistre d'abord, sans repasser par `st.session_state`, pour ne rien perdre.
+        echanges += [("user", question), ("assistant", reponse)]
+    st.rerun()

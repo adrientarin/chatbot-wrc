@@ -1,5 +1,7 @@
 """L'agent ne demande le rattrapage des refus qu'aux modèles qui l'ont."""
 
+import threading
+import time
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -41,3 +43,48 @@ def test_haiku_ne_demande_pas_de_rattrapage() -> None:
 
     assert "fallbacks" not in options
     assert "betas" not in options
+
+
+class FauxMessagesLents:
+    """Comme l'API, demande un outil puis répond, et note les appels qui se chevauchent."""
+
+    def __init__(self) -> None:
+        self.en_cours = 0
+        self.max_en_cours = 0
+        self.verrou = threading.Lock()
+
+    def create(self, **options: Any) -> SimpleNamespace:
+        with self.verrou:
+            self.en_cours += 1
+            self.max_en_cours = max(self.max_en_cours, self.en_cours)
+        time.sleep(0.05)
+        with self.verrou:
+            self.en_cours -= 1
+        if isinstance(options["messages"][-1]["content"], str):
+            appel = SimpleNamespace(type="tool_use", id="toolu_1", name="calendrier", input={})
+            return SimpleNamespace(stop_reason="tool_use", content=[appel])
+        return SimpleNamespace(
+            stop_reason="end_turn", content=[SimpleNamespace(type="text", text="Salut !")]
+        )
+
+
+def test_deux_questions_simultanees_ne_melangent_pas_l_historique() -> None:
+    # Streamlit peut lancer une 2e question pendant que la 1re attend encore sa réponse.
+    messages = FauxMessagesLents()
+    client = SimpleNamespace(beta=SimpleNamespace(messages=messages))
+    outils = SimpleNamespace(executer=lambda nom, arguments: {})
+    agent = Agent(cast(anthropic.Anthropic, client), cast(Outils, outils), "claude-haiku-5-5")
+    depart = threading.Barrier(2)
+
+    def poser(question: str) -> None:
+        depart.wait()
+        agent.repondre(question)
+
+    fils = [threading.Thread(target=poser, args=(q,)) for q in ("Un", "Deux")]
+    for fil in fils:
+        fil.start()
+    for fil in fils:
+        fil.join()
+
+    assert messages.max_en_cours == 1
+    assert [m["role"] for m in agent._messages] == ["user", "assistant", "user", "assistant"] * 2
