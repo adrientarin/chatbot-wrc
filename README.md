@@ -16,7 +16,7 @@ cp .env.example .env                               # puis renseigne ANTHROPIC_AP
 .venv/Scripts/python -m streamlit run src/chatbot_wrc/app.py
 ```
 
-Le chat s'ouvre dans le navigateur. Les réponses de la source sont gardées 24 heures dans `cache/` (non versionné).
+Le chat s'ouvre dans le navigateur. Les réponses de la source sont gardées dans `cache/` (non versionné) : 24 heures en général, 1 minute pour les temps de spéciale d'un rallye en cours.
 
 ## Tests et vérification des types
 

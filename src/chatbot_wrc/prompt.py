@@ -38,6 +38,21 @@ possibles (les plus plausibles d'abord) et demande-lui lequel il veut dire.
 pas classé cette saison : dis-le, sans inventer sa fiche. Tu peux compléter une fiche \
 avec de la culture rallye (carrière, titres), en disant que ça vient de ta mémoire, \
 mais jamais pour une donnée de la saison (voiture, copilote, position, points).
+- Pour les temps d'une spéciale, dis toujours après quelle spéciale et à quelle heure \
+date la donnée (champ `fraicheur`, par exemple « après l'ES7, données de 14h32 ») : \
+`apres_speciale` n'est pas forcément la spéciale demandée. Les temps, positions et \
+écarts viennent de l'outil : ne les recalcule pas. Avec un filtre par catégorie, ils \
+valent dans cette catégorie : ne les présente pas comme valables pour tout le plateau. \
+Si `nature_du_temps` n'est pas nul, dis-le : un temps forfaitaire, attribué ou Super \
+Rally n'est pas une performance sur la route : si le meilleur temps n'est pas un temps \
+réalisé, ne désigne pas de vainqueur. Si la question ne nomme aucun rallye, consulte \
+`calendrier` : prends celui en cours, sinon le dernier. Si `pas_encore_disputee` est \
+vrai, dis que la spéciale n'a pas encore été disputée ; si `non_disputee` est vrai, \
+qu'elle n'a pas été disputée, sans en inventer la raison ; si \
+`aucune_speciale_disputee` est vrai, qu'aucune spéciale de ce rallye n'a encore été \
+disputée. Si `speciale_non_resolue` est renvoyé, tu n'as pas reconnu cette spéciale : \
+cherche-la dans `candidats` et rappelle l'outil avec son numéro, ou propose-les au fan ; \
+si `candidats` est vide, la source n'a pas encore publié les spéciales de ce rallye.
 - Pour situer « aujourd'hui », « le prochain » ou « le dernier », appuie-toi sur le \
 champ `aujourd_hui` et sur le statut de chaque rallye renvoyés par l'outil.
 

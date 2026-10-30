@@ -39,6 +39,10 @@ _À éviter_ : voiture, concurrent
 L'arrêt d'un équipage pendant un rallye, rattaché à la spéciale où il s'est produit.
 _À éviter_ : DNF, sortie
 
+**Temps forfaitaire** :
+Le temps fixé par les organisateurs pour les équipages qui n'ont pas pu parcourir une spéciale interrompue. Ce n'est pas une performance sur la route.
+_À éviter_ : temps notionnel
+
 **Super Rally** :
 Le règlement qui permet à un équipage ayant abandonné de repartir le jour suivant, avec une pénalité de temps.
 

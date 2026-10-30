@@ -12,7 +12,12 @@ from anthropic.types.beta import BetaToolParam
 
 from chatbot_wrc.cache import Cache
 from chatbot_wrc.horloge import Horloge
-from chatbot_wrc.resolution import meme_nom, resoudre_pilote, resoudre_rallye
+from chatbot_wrc.resolution import (
+    meme_nom,
+    resoudre_pilote,
+    resoudre_rallye,
+    resoudre_speciale,
+)
 from chatbot_wrc.source_wrc import (
     CHAMPIONNATS,
     Categorie,
@@ -23,6 +28,9 @@ from chatbot_wrc.source_wrc import (
     Rallye,
     Saison,
     SourceWRC,
+    Speciale,
+    Statut,
+    TempsEquipage,
     TypeChampionnat,
 )
 from chatbot_wrc.transport import Transport
@@ -128,7 +136,56 @@ DEFINITIONS: list[BetaToolParam] = [
         },
         "strict": True,
     },
+    {
+        "name": "temps_speciale",
+        "description": (
+            "Les temps d'une spéciale d'un rallye de la saison en cours du WRC, pour les "
+            "équipages WRC1 et WRC2 : `speciale` (numéro, code, nom, distance, Power Stage "
+            "ou non, statut) et `temps`, du plus rapide au plus lent : position, numéro, "
+            "pilote, copilote, catégorie, constructeur, temps, écart au meilleur et au "
+            "précédent. Le vainqueur de la spéciale est le premier dont `nature_du_temps` vaut "
+            "null ; si aucun premier n'a de tel temps, il n'y a pas de vainqueur sur la route "
+            "dans cette sélection. Positions et écarts sont "
+            "calculés dans la sélection : parmi la catégorie demandée, ou parmi les équipages "
+            "WRC1 et WRC2 avec `toutes`. Un même temps donne une même position. "
+            "`nature_du_temps` signale un temps qui n'a pas été réalisé sur la route : "
+            "« forfaitaire » (temps fixé sur une spéciale interrompue), « attribué » (par les "
+            "commissaires), « Super Rally » ; il vaut null pour un temps normal. `sans_temps` "
+            "liste à part les équipages non partants ou ayant abandonné sur cette spéciale. "
+            "`fraicheur` donne l'heure de la donnée et `apres_speciale`, la dernière "
+            "spéciale disputée du rallye ; `donnee_perimee` signale une donnée qui date. "
+            "`pas_encore_disputee` signale une spéciale sans aucun temps d'un rallye qui n'est "
+            "pas terminé, `non_disputee` celle d'un rallye terminé (voir son statut). Le "
+            "rallye se désigne en texte libre, tel que l'utilisateur l'a dit (« Portugal », "
+            "« dernier », « en cours ») ; s'il n'en précise aucun, passe « en cours » si un "
+            "rallye est en cours d'après `calendrier`, sinon « dernier ». La spéciale aussi : par son numéro (« ES7 », « spéciale 7 »), "
+            "« la dernière » (la dernière disputée) ou « la Power Stage » ; le nom d'une "
+            "spéciale n'est pas compris : retrouve d'abord son numéro. "
+            "`aucune_speciale_disputee` veut dire qu'aucune n'a encore été disputée sur ce "
+            "rallye. Si le rallye est "
+            "ambigu ou introuvable, `candidats` liste les rallyes possibles. Si la spéciale "
+            "n'existe pas, `speciale_non_resolue` est renvoyé et `candidats` liste les "
+            "spéciales du rallye (une liste vide veut dire qu'elles ne sont pas encore "
+            "publiées). `categorie` vaut WRC1, WRC2 ou « toutes » si la question ne précise "
+            "pas de catégorie."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "rallye": {"type": "string"},
+                "speciale": {"type": "string"},
+                "categorie": {"type": "string", "enum": ["WRC1", "WRC2", "toutes"]},
+            },
+            "required": ["rallye", "speciale", "categorie"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
 ]
+
+
+# La valeur de `categorie` qui ne filtre pas les temps d'une spéciale.
+TOUTES = "toutes"
 
 
 class Outils:
@@ -147,6 +204,12 @@ class Outils:
             return self.engages(str(arguments.get("rallye", "")))
         if nom == "fiche_pilote":
             return self.fiche_pilote(str(arguments.get("nom", "")))
+        if nom == "temps_speciale":
+            return self.temps_speciale(
+                str(arguments.get("rallye", "")),
+                str(arguments.get("speciale", "")),
+                str(arguments.get("categorie", TOUTES)),
+            )
         raise ValueError(f"outil inconnu : {nom}")
 
     def calendrier(self) -> dict[str, Any]:
@@ -299,6 +362,125 @@ class Outils:
             },
         } | _etat_donnee(Fraicheur.combiner(fraicheurs))
 
+    def temps_speciale(self, rallye: str, speciale: str, categorie: str) -> dict[str, Any]:
+        filtre: Categorie | None = None
+        if categorie.strip().lower() != TOUTES:
+            try:
+                filtre = Categorie(categorie.strip().upper())
+            except ValueError:
+                return {
+                    "erreur": f"Pas de catégorie « {categorie} ». Seuls WRC1 et WRC2 sont suivis."
+                }
+        try:
+            calendrier = self._source.calendrier()
+        except DonneeIndisponible:
+            return _indisponible("le calendrier")
+        aujourdhui = self._source.aujourdhui()
+        resolution = resoudre_rallye(rallye, calendrier, aujourdhui)
+        if resolution.rallye is None:
+            return {
+                "rallye_non_resolu": rallye,
+                "candidats": [_rallye(r, aujourdhui) for r in resolution.candidats],
+            } | _etat_donnee(calendrier.fraicheur)
+        le_rallye = {"rallye": _rallye(resolution.rallye, aujourdhui)}
+        try:
+            speciales = self._source.speciales(resolution.rallye)
+        except DonneeIndisponible:
+            return le_rallye | _indisponible("les spéciales de ce rallye")
+        derniere = speciales.derniere_disputee()
+        apres = None if derniere is None else derniere.code
+        resolue = resoudre_speciale(speciale, speciales)
+        if resolue.speciale is None:
+            non_resolue = (
+                {"aucune_speciale_disputee": True}
+                if resolue.aucune_disputee
+                else {"speciale_non_resolue": speciale}
+            )
+            return le_rallye | non_resolue | {
+                "candidats": [_speciale(s) for s in resolue.candidats],
+            } | _etat_donnee(speciales.fraicheur, apres)
+        disputee = resolue.speciale.disputee
+        try:
+            temps = self._source.temps_speciale(resolution.rallye, resolue.speciale.numero)
+        except DonneeIndisponible:
+            # La source peut ne rien servir pour une spéciale sans temps. Si elle répond
+            # pour les spéciales, ce n'est pas une panne.
+            if disputee or speciales.fraicheur.perimee:
+                return le_rallye | _indisponible("les temps de cette spéciale")
+            temps = None
+        if temps is None or (not disputee and all(t.temps_ms is None for t in temps.temps)):
+            a_venir = resolution.rallye.statut(aujourdhui) != Statut.PASSE
+            return le_rallye | {
+                "speciale": _speciale(resolue.speciale),
+                "pas_encore_disputee" if a_venir else "non_disputee": True,
+                "temps": [],
+            } | _etat_donnee(speciales.fraicheur, apres)
+        selection = [t for t in temps.temps if filtre in (None, t.equipage.categorie)]
+        return le_rallye | {
+            "speciale": _speciale(resolue.speciale),
+            "categorie": TOUTES if filtre is None else str(filtre),
+            "temps": _temps(selection, resolue.speciale),
+            "sans_temps": [
+                {
+                    "pilote": t.equipage.pilote,
+                    "categorie": str(t.equipage.categorie),
+                    "statut": t.statut,
+                }
+                for t in selection
+                if t.temps_ms is None and t.statut is not None
+            ],
+        } | _etat_donnee(temps.fraicheur, apres)
+
+
+def _speciale(speciale: Speciale) -> dict[str, Any]:
+    return {
+        "numero": speciale.numero,
+        "code": speciale.code,
+        "nom": speciale.nom,
+        "distance_km": speciale.distance_km,
+        "power_stage": speciale.power_stage,
+        "statut": speciale.statut,
+    }
+
+
+def _temps(temps: list[TempsEquipage], speciale: Speciale) -> list[dict[str, Any]]:
+    """Les équipages classés au temps : positions et écarts sont ceux de la sélection."""
+    chronos = sorted(
+        ((t, t.temps_ms) for t in temps if t.temps_ms is not None), key=lambda c: c[1]
+    )
+    lignes: list[dict[str, Any]] = []
+    for i, (t, temps_ms) in enumerate(chronos):
+        precedent = chronos[max(i - 1, 0)][1]
+        lignes.append(
+            {
+                # Un même temps donne une même position.
+                "position": lignes[-1]["position"] if i and temps_ms == precedent else i + 1,
+                "numero": t.equipage.numero,
+                "pilote": t.equipage.pilote,
+                "copilote": t.equipage.copilote,
+                "categorie": str(t.equipage.categorie),
+                "constructeur": t.equipage.constructeur,
+                "temps": _duree(temps_ms, speciale.decimales),
+                "ecart_au_meilleur": _duree(temps_ms - chronos[0][1], speciale.decimales),
+                "ecart_au_precedent": _duree(temps_ms - precedent, speciale.decimales),
+                "nature_du_temps": t.nature,
+            }
+        )
+    return lignes
+
+
+def _duree(ms: int, decimales: int) -> str:
+    """Une durée lisible : « 1:02:03.4 », « 11:22.8 » ou « 2.6 »."""
+    secondes, reste = divmod(ms, 1000)
+    minutes, secondes = divmod(secondes, 60)
+    heures, minutes = divmod(minutes, 60)
+    fraction = f"{reste:03d}"[:decimales]
+    if heures:
+        return f"{heures}:{minutes:02d}:{secondes:02d}.{fraction}"
+    if minutes:
+        return f"{minutes}:{secondes:02d}.{fraction}"
+    return f"{secondes}.{fraction}"
+
 
 def _categorie(pilote: str, lignes: dict[Categorie, dict[str, LigneChampionnat]]) -> Categorie:
     """Un pilote classé en WRC2 court en WRC2 ; le championnat du monde des pilotes
@@ -385,10 +567,11 @@ def _requete_invalide(categorie: str, type_: str) -> dict[str, Any]:
     }
 
 
-def _etat_donnee(fraicheur: Fraicheur) -> dict[str, Any]:
+def _etat_donnee(fraicheur: Fraicheur, apres_speciale: str | None = None) -> dict[str, Any]:
+    heure = {"heure_donnee": fraicheur.recupere_le.isoformat(timespec="minutes")}
     return {
         "donnee_disponible": True,
-        "fraicheur": {"heure_donnee": fraicheur.recupere_le.isoformat(timespec="minutes")},
+        "fraicheur": heure if apres_speciale is None else heure | {"apres_speciale": apres_speciale},
         "donnee_perimee": fraicheur.perimee,
     }
 

@@ -34,6 +34,19 @@ _ROUTES = {
             ),
         )
     },
+    **{
+        f"events/{evenement}/stages.json": f"stages-{evenement}.json" for evenement in (640, 647)
+    },
+    **{
+        f"events/{evenement}/stages/{speciale}/stagetimes.json?rallyId={rallye}": (
+            f"stagetimes-{evenement}-{speciale}.json"
+        )
+        for evenement, rallye, speciales in (
+            (640, 708, (10976, 10977, 10982, 10998)),
+            (647, 715, (11714,)),
+        )
+        for speciale in speciales
+    },
 }
 
 

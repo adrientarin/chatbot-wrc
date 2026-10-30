@@ -8,7 +8,7 @@ import json
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from typing import Any
 
@@ -19,6 +19,7 @@ from chatbot_wrc.transport import ErreurTransport, Transport
 ADRESSE_API = "https://p-p.redbull.com/rb-wrccom-lintegration-yv-prod/api"
 NOM_CHAMPIONNAT = "World Rally Championship"
 VALIDITE_LONGUE = timedelta(hours=24)
+VALIDITE_COURTE = timedelta(minutes=1)
 
 __all__ = [
     "CHAMPIONNATS",
@@ -35,7 +36,11 @@ __all__ = [
     "Rallye",
     "Saison",
     "SourceWRC",
+    "Speciale",
+    "Speciales",
     "Statut",
+    "TempsEquipage",
+    "TempsSpeciale",
     "TypeChampionnat",
 ]
 
@@ -184,6 +189,51 @@ class ClassementsChampionnat:
     fraicheur: Fraicheur
 
 
+@dataclass(frozen=True)
+class Speciale:
+    numero: int
+    nom: str
+    distance_km: float
+    power_stage: bool
+    statut: str
+    # Le nombre de décimales du chronométrage (trois en Power Stage).
+    decimales: int
+
+    @property
+    def code(self) -> str:
+        return f"ES{self.numero}"
+
+    @property
+    def disputee(self) -> bool:
+        return self.statut in _STATUTS_SPECIALES.values()
+
+
+@dataclass(frozen=True)
+class Speciales:
+    liste: list[Speciale]
+    fraicheur: Fraicheur
+
+    def derniere_disputee(self) -> Speciale | None:
+        return max((s for s in self.liste if s.disputee), key=lambda s: s.numero, default=None)
+
+
+@dataclass(frozen=True)
+class TempsEquipage:
+    equipage: Equipage
+    # Sans temps pour un équipage qui n'a pas terminé la spéciale.
+    temps_ms: int | None
+    # « non partant » ou « abandon » pour un équipage sans temps.
+    statut: str | None
+    # D'où vient un temps qui n'a pas été réalisé sur la route (forfaitaire…).
+    nature: str | None
+
+
+@dataclass(frozen=True)
+class TempsSpeciale:
+    temps: list[TempsEquipage]
+    fraicheur: Fraicheur
+
+
 class SourceWRC:
     def __init__(self, transport: Transport, horloge: Horloge, cache: Cache) -> None:
         self._transport = transport
@@ -274,21 +324,64 @@ class SourceWRC:
 
     def engages(self, rallye: Rallye) -> Engages:
         """Les équipages engagés en WRC1 et WRC2 sur un rallye du calendrier."""
+        id_evenement, id_rallye, lectures = self._evenement(rallye)
+        engages = self._lire_engages(id_evenement, id_rallye)
+        return Engages(
+            list(_lire_equipages(engages.valeur).values()),
+            Fraicheur.combiner([*lectures, engages]),
+        )
+
+    def speciales(self, rallye: Rallye) -> Speciales:
+        """Les spéciales d'un rallye du calendrier, dans l'ordre (vide avant leur publication)."""
+        id_evenement, _, _ = self._evenement(rallye)
+        lecture = self._speciales_du_rallye(rallye, id_evenement)
+        return Speciales(_lire_speciales(lecture.valeur), Fraicheur.combiner([lecture]))
+
+    def temps_speciale(self, rallye: Rallye, numero: int) -> TempsSpeciale:
+        """Les temps d'une spéciale, pour les équipages engagés en WRC1 et WRC2.
+
+        La fraîcheur est celle des temps et des spéciales : les engagés et le calendrier,
+        gardés bien plus longtemps, ne disent rien de l'âge du résultat.
+        """
+        id_evenement, id_rallye, _ = self._evenement(rallye)
+        speciales = self._speciales_du_rallye(rallye, id_evenement)
+        id_speciale = _lire_ids_speciales(speciales.valeur)[numero]
+        lecture = self._lire_en_direct(
+            rallye,
+            f"stagetimes-{id_evenement}-{id_speciale}",
+            f"events/{id_evenement}/stages/{id_speciale}/stagetimes.json?rallyId={id_rallye}",
+            _lire_temps,
+        )
+        equipages = _lire_equipages(self._lire_engages(id_evenement, id_rallye).valeur)
+        return TempsSpeciale(
+            [
+                TempsEquipage(equipages[t.id_engage], t.temps_ms, t.statut, t.nature)
+                for t in _lire_temps(lecture.valeur)
+                if t.id_engage in equipages
+            ],
+            Fraicheur.combiner([speciales, lecture]),
+        )
+
+    def _evenement(self, rallye: Rallye) -> tuple[int, int, list[Lecture]]:
+        """Les identifiants de l'événement et de son rallye principal, et leurs lectures."""
         saisons = _lire_saisons(self._lire_liste_saisons().valeur)
         lecture_saison = self._lire_saison(saisons[rallye.saison])
         id_evenement = _lire_evenements(lecture_saison.valeur)[rallye.numero]
         evenement = self._lire(
             f"event-{id_evenement}", f"events/{id_evenement}.json", _lire_rallye_principal
         )
-        id_rallye = _lire_rallye_principal(evenement.valeur)
-        engages = self._lire(
+        return id_evenement, _lire_rallye_principal(evenement.valeur), [lecture_saison, evenement]
+
+    def _lire_engages(self, id_evenement: int, id_rallye: int) -> Lecture:
+        return self._lire(
             f"entries-{id_evenement}-{id_rallye}",
             f"events/{id_evenement}/rallies/{id_rallye}/entries.json",
             _lire_equipages,
         )
-        return Engages(
-            _lire_equipages(engages.valeur),
-            Fraicheur.combiner([lecture_saison, evenement, engages]),
+
+    def _speciales_du_rallye(self, rallye: Rallye, id_evenement: int) -> Lecture:
+        return self._lire_en_direct(
+            rallye, f"stages-{id_evenement}", f"events/{id_evenement}/stages.json", _lire_speciales
         )
 
     def _lire_liste_saisons(self) -> Lecture:
@@ -301,7 +394,30 @@ class SourceWRC:
             lambda brut: (_lire_rallyes(brut), _lire_championnats(brut)),
         )
 
-    def _lire(self, cle: str, chemin: str, valider: Callable[[Any], object]) -> Lecture:
+    def _lire_en_direct(
+        self, rallye: Rallye, cle: str, chemin: str, valider: Callable[[Any], object]
+    ) -> Lecture:
+        """Une donnée qui évolue pendant le rallye : gardée 1 minute tant qu'il est en
+        cours. Une fois le rallye terminé, une réponse lue pendant qu'il se disputait
+        peut être incomplète : elle n'est pas reprise, même récente."""
+        maintenant = self._horloge.maintenant()
+        statut = rallye.statut(maintenant.date())
+        if statut == Statut.EN_COURS:
+            return self._lire(cle, chemin, valider, VALIDITE_COURTE)
+        if statut == Statut.PASSE:
+            lendemain = rallye.fin + timedelta(days=1)
+            pas_avant = datetime.combine(lendemain, time(), maintenant.tzinfo)
+            return self._lire(cle, chemin, valider, pas_avant=pas_avant)
+        return self._lire(cle, chemin, valider)
+
+    def _lire(
+        self,
+        cle: str,
+        chemin: str,
+        valider: Callable[[Any], object],
+        validite: timedelta = VALIDITE_LONGUE,
+        pas_avant: datetime | None = None,
+    ) -> Lecture:
         def recuperer() -> Any:
             try:
                 valeur = json.loads(self._transport.get(f"{ADRESSE_API}/{chemin}"))
@@ -312,7 +428,7 @@ class SourceWRC:
                 raise ErreurSource(f"format inattendu pour {chemin} : {erreur!r}") from erreur
             return valeur
 
-        return self._cache.obtenir(cle, recuperer, VALIDITE_LONGUE)
+        return self._cache.obtenir(cle, recuperer, validite, pas_avant)
 
 
 def _lire_saisons(brut: Any) -> dict[int, int]:
@@ -360,8 +476,9 @@ def _lire_rallye_principal(brut: Any) -> int:
 _CATEGORIES_ENGAGES = {"P1": Categorie.WRC1, "P2": Categorie.WRC2}
 
 
-def _lire_equipages(brut: Any) -> list[Equipage]:
-    equipages = []
+def _lire_equipages(brut: Any) -> dict[int, Equipage]:
+    """Identifiant de l'engagé -> équipage, dans l'ordre de la liste des engagés."""
+    equipages = {}
     for engage in sorted(brut, key=lambda e: int(e["entryListOrder"])):
         categorie = _CATEGORIES_ENGAGES.get(engage["priority"])
         if categorie is None:
@@ -369,18 +486,73 @@ def _lire_equipages(brut: Any) -> list[Equipage]:
         copilote = engage["codriver"]
         constructeur = engage["manufacturer"]
         equipe = engage["entrant"]
-        equipages.append(
-            Equipage(
-                numero=engage["identifier"],
-                pilote=engage["driver"]["fullName"],
-                copilote=None if copilote is None else copilote["fullName"],
-                voiture=engage["vehicleModel"],
-                categorie=categorie,
-                constructeur=None if constructeur is None else constructeur["name"],
-                equipe=None if equipe is None else equipe["name"],
-            )
+        equipages[int(engage["entryId"])] = Equipage(
+            numero=engage["identifier"],
+            pilote=engage["driver"]["fullName"],
+            copilote=None if copilote is None else copilote["fullName"],
+            voiture=engage["vehicleModel"],
+            categorie=categorie,
+            constructeur=None if constructeur is None else constructeur["name"],
+            equipe=None if equipe is None else equipe["name"],
         )
     return equipages
+
+
+# Les statuts d'une spéciale disputée. Ceux d'une spéciale à venir ou en cours n'ont pas
+# pu être observés (aucun rallye en cours à l'implémentation) : ils sont repris tels quels.
+_STATUTS_SPECIALES = {"Completed": "terminée", "Interrupted": "interrompue"}
+_DECIMALES = {"Tenth": 1, "Hundredth": 2, "Thousandth": 3}
+
+
+def _lire_speciales(brut: Any) -> list[Speciale]:
+    speciales = [
+        Speciale(
+            numero=int(s["number"]),
+            nom=s["name"],
+            distance_km=float(s["distance"]),
+            power_stage=s["stageType"] == "PowerStage",
+            statut=_STATUTS_SPECIALES.get(s["status"], s["status"]),
+            decimales=_DECIMALES.get(s["timingPrecision"], 1),
+        )
+        for s in brut
+    ]
+    return sorted(speciales, key=lambda s: s.numero)
+
+
+def _lire_ids_speciales(brut: Any) -> dict[int, int]:
+    """Numéro de la spéciale dans le rallye -> identifiant dans l'API."""
+    return {int(s["number"]): int(s["stageId"]) for s in brut}
+
+
+@dataclass(frozen=True)
+class _Temps:
+    id_engage: int
+    temps_ms: int | None
+    statut: str | None
+    nature: str | None
+
+
+_STATUTS_TEMPS = {"DNS": "non partant", "DNF": "abandon"}
+# L'origine d'un temps non réalisé sur la route : temps forfaitaire d'une spéciale
+# interrompue, temps attribué par les commissaires, temps d'un équipage reparti en
+# Super Rally (« Rally2 » dans la source).
+_NATURES_TEMPS = {
+    "Notional": "forfaitaire",
+    "Assessed": "attribué",
+    "Rally2": "Super Rally",
+}
+
+
+def _lire_temps(brut: Any) -> list[_Temps]:
+    return [
+        _Temps(
+            id_engage=int(t["entryId"]),
+            temps_ms=None if t["elapsedDurationMs"] is None else int(t["elapsedDurationMs"]),
+            statut=_STATUTS_TEMPS.get(t["status"]),
+            nature=_NATURES_TEMPS.get(t["source"]),
+        )
+        for t in brut
+    ]
 
 
 def _lire_championnats(brut: Any) -> dict[str, int]:

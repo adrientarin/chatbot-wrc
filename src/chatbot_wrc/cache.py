@@ -37,9 +37,21 @@ class Cache:
         self._dossier = dossier
         self._entrees: dict[str, Lecture] = {}
 
-    def obtenir(self, cle: str, recuperer: Callable[[], Any], validite: timedelta) -> Lecture:
+    def obtenir(
+        self,
+        cle: str,
+        recuperer: Callable[[], Any],
+        validite: timedelta,
+        pas_avant: datetime | None = None,
+    ) -> Lecture:
+        """La réponse connue si elle a moins de `validite`, et, avec `pas_avant`, si elle
+        ne date pas d'avant cette heure ; sinon, une réponse redemandée à la source."""
         connue = self._entrees.get(cle) or self._relire(cle)
-        if connue is not None and self._horloge.maintenant() - connue.recupere_le < validite:
+        if (
+            connue is not None
+            and self._horloge.maintenant() - connue.recupere_le < validite
+            and (pas_avant is None or connue.recupere_le >= pas_avant)
+        ):
             return connue
         try:
             valeur = recuperer()

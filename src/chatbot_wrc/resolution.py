@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from chatbot_wrc.source_wrc import Calendrier, Rallye, Statut
+from chatbot_wrc.source_wrc import Calendrier, Rallye, Speciale, Speciales, Statut
 
 # Les mots qui ne désignent aucun rallye en particulier.
 _MOTS_VIDES = frozenset(
@@ -117,6 +117,33 @@ def _mots_du_rallye(rallye: Rallye) -> set[str]:
     texte = " ".join([rallye.nom, rallye.pays, rallye.lieu])
     francais = [nom for cle, nom in _NOMS_FRANCAIS.items() if cle in texte]
     return set(_normaliser(" ".join([texte, *francais])).split())
+
+
+@dataclass(frozen=True)
+class ResolutionSpeciale:
+    # La spéciale désignée, si elle existe.
+    speciale: Speciale | None
+    # Sinon, les spéciales du rallye.
+    candidats: list[Speciale]
+    # Vrai pour « la dernière » quand aucune spéciale n'a encore été disputée.
+    aucune_disputee: bool = False
+
+
+def resoudre_speciale(texte: str, speciales: Speciales) -> ResolutionSpeciale:
+    """La spéciale désignée par son numéro (« ES7 », « spéciale 7 »), par « la dernière »
+    (la dernière disputée) ou par « la Power Stage »."""
+    normalise = _normaliser(texte)
+    trouvee = None
+    if re.search(r"\b(power\s*stage|ps)\b", normalise):
+        trouvee = next((s for s in speciales.liste if s.power_stage), None)
+    elif re.fullmatch(r"(la |le )?(dernier|derniere)( speciale| es)?( disputee)?", normalise):
+        trouvee = speciales.derniere_disputee()
+        if trouvee is None:
+            return ResolutionSpeciale(None, speciales.liste, aucune_disputee=True)
+    # Un chiffre seul dans un nom (« Arganil 2 ») n'est pas un numéro de spéciale.
+    elif numero := re.search(r"(?:^|\b(?:es|ss|speciale)\s*)(\d+)\b", normalise):
+        trouvee = next((s for s in speciales.liste if s.numero == int(numero[1])), None)
+    return ResolutionSpeciale(trouvee, [] if trouvee else speciales.liste)
 
 
 # Les surnoms courants des pilotes, avec le nom complet qu'ils désignent.
