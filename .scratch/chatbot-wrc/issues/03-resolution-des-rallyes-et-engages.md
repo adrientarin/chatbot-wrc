@@ -15,7 +15,7 @@ Spec : `.scratch/chatbot-wrc/spec.md`.
 - [x] L'outil est déclaré à l'agent, et le chatbot demande à l'utilisateur de choisir quand l'outil renvoie des candidats.
 - [x] Des fixtures JSON réelles des engagés d'au moins un rallye sont enregistrées.
 - [x] Des tests automatiques, sans réseau, passent par l'outil et couvrent chaque forme de désignation, les repères relatifs à différentes dates de la fausse horloge, l'ambiguïté, l'introuvable et le filtrage des catégories.
-- [ ] Démonstration : dans le chat, « Qui est engagé au Portugal ? » renvoie la liste des équipages.
+- [x] Démonstration : dans le chat, « Qui est engagé au Portugal ? » renvoie la liste des équipages.
 
 ## Comments
 

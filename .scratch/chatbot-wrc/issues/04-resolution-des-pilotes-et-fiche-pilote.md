@@ -14,7 +14,7 @@ Spec : `.scratch/chatbot-wrc/spec.md`.
 - [x] L'outil est déclaré à l'agent ; le prompt système précise que la culture rallye peut compléter une fiche, toujours présentée comme venant de la mémoire du chatbot et jamais pour une donnée.
 - [x] Des fixtures JSON réelles du détail des championnats (pilotes, nationalités, constructeurs, équipes) sont enregistrées.
 - [x] Des tests automatiques, sans réseau, passent par l'outil et couvrent prénom, nom, absence d'accents, faute de frappe légère, ambiguïté, introuvable, un pilote WRC1 et un pilote WRC2.
-- [ ] Démonstration : dans le chat, « Qui est le copilote de Rovanpera ? » renvoie le bon copilote.
+- [x] Démonstration : dans le chat, « Qui est le copilote de Rovanpera ? » renvoie le bon copilote.
 
 ## Comments
 

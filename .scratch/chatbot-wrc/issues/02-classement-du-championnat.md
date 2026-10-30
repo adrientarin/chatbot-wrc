@@ -15,7 +15,7 @@ Spec : `.scratch/chatbot-wrc/spec.md`.
 - [x] L'outil est déclaré à l'agent, et le chatbot peut répondre aux questions de classement du championnat et d'écart de points.
 - [x] Des fixtures JSON réelles des classements du championnat (WRC1 pilotes, copilotes, constructeurs ; WRC2 pilotes, copilotes) sont enregistrées.
 - [x] Des tests automatiques, sans réseau, passent par l'outil et couvrent chaque catégorie et chaque type, le détail des points par rallye et la combinaison invalide.
-- [ ] Démonstration : dans le chat, « Où en est le championnat des constructeurs ? » renvoie le bon classement avec la fraîcheur.
+- [x] Démonstration : dans le chat, « Où en est le championnat des constructeurs ? » renvoie le bon classement avec la fraîcheur.
 
 ## Comments
 
