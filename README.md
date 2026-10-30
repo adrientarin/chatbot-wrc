@@ -26,3 +26,5 @@ Le chat s'ouvre dans le navigateur. Les réponses de la source sont gardées dan
 ```
 
 Les tests passent par les outils exposés à Claude, avec un faux transport HTTP (fixtures JSON réelles dans `tests/fixtures/`) et une fausse horloge : aucun accès réseau.
+
+Le comportement conversationnel se vérifie à la main, avec `docs/questions-types.md`, avant chaque changement important.
