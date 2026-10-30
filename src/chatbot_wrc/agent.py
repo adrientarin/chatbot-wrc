@@ -12,7 +12,7 @@ from anthropic.types.beta import BetaMessageParam, BetaToolResultBlockParam
 from chatbot_wrc.outils import DEFINITIONS, Outils
 from chatbot_wrc.prompt import PROMPT_SYSTEME
 
-MODELE_PAR_DEFAUT = "claude-opus-5-5"
+MODELE_PAR_DEFAUT = "claude-haiku-5-5"
 
 REPONSE_REFUS = (
     "Oups, je ne peux pas répondre à ça. Pose-moi plutôt une question sur la saison de WRC !"
@@ -38,11 +38,8 @@ class Agent:
                 system=PROMPT_SYSTEME,
                 tools=DEFINITIONS,
                 messages=self._messages,
-                # Un échange de chat : l'effort bas suffit et réduit le coût et la latence.
-                output_config={"effort": "low"},
-                # Si un classifieur de sécurité refuse, l'API réessaie sur le modèle recommandé.
-                betas=["server-side-fallback-2026-07-01"],
-                fallbacks="default",
+                # Avec un long prompt, l'effort bas fait sauter des appels d'outils à Haiku.
+                output_config={"effort": "medium"},
             )
             if reponse.stop_reason == "refusal":
                 # On retire ce tour de l'historique pour que la conversation reste utilisable.
