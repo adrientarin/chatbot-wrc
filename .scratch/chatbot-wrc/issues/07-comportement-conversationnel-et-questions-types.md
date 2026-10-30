@@ -16,7 +16,7 @@ Spec : `.scratch/chatbot-wrc/spec.md`. Vocabulaire : `GLOSSARY.md`.
 
 **Liste** : `docs/questions-types.md` (38 questions ; la 38 a été ajoutée après ce passage).
 
-**Passage sur Opus (remplacé par le passage sur Haiku, à la fin)** : dans l'agent réel (hors Streamlit), avec la vraie API et `claude-opus-5-5`, sur une copie du cache. Les questions 1 à 35 sont passées avec la première version du prompt modifié. Leurs chiffres ont été comparés aux résultats bruts des outils pour les questions 4, 5, 8 à 13, 15 et 20 à 22.
+**Passage du 30 octobre 2026** : dans l'agent réel (hors Streamlit), avec la vraie API et `claude-opus-5-5`, sur une copie du cache. Les questions 1 à 35 sont passées avec la première version du prompt modifié. Leurs chiffres ont été comparés aux résultats bruts des outils pour les questions 4, 5, 8 à 13, 15 et 20 à 22.
 
 - **Conformes** : 1 à 12, 18 à 21, 23 à 34. Notamment : fraîcheur indiquée à chaque donnée, classement final 2026 présenté comme tel, suivi sans redite, Rossel non choisi, hors sujet recentré sans réponse (la solution de l'équation n'est pas donnée), culture signalée, rien d'inventé sur 2019, WRC3 ou les temps intermédiaires, aucun pronostic.
 - **Q14** : réponse juste, mais la liste des spéciales est regroupée selon des critères absents de l'outil (« Jeudi », « Région d'Arganil »).
@@ -29,7 +29,9 @@ Spec : `.scratch/chatbot-wrc/spec.md`. Vocabulaire : `GLOSSARY.md`.
 
 **Corrections du prompt après ce passage, pas encore revérifiées** : rappeler l'outil quand un suivi change de rallye, de spéciale ou de catégorie ; annoncer comme venant de la mémoire tout ce qui n'est pas dans un résultat, sans regrouper selon un critère absent ; nommer la saison terminée ; prudence sur la mémoire des dernières années. Le ticket 06 notait déjà les suppositions glissées dans les réponses : le prompt les interdit maintenant. Après la revue de code, le prompt a aussi changé sur les candidats (ambigu ou introuvable traités à part), les commentaires de mémoire (ni donnée, ni jargon), le palmarès ancien et `donnee_disponible` faux.
 
-**Second passage sur Opus** : impossible, le crédit de l'API a été épuisé juste après ces 35 questions.
+**Reste à faire** : le crédit de l'API Anthropic a été épuisé juste après ces 35 questions (`credit balance is too low`), avant toute réponse du second passage. Il faudra :
+1. repasser les questions 13 à 17, 19, 22, 25, 28 à 35 avec le prompt corrigé ;
+2. passer les questions 36 à 38 : jamais posées au modèle, et la 38 dans le chat Streamlit.
 
 **Source injoignable, vérifié sans le modèle** : avec la procédure de la liste (proxy, `NO_PROXY=api.anthropic.com`), `calendrier` et `classement_rallye` renvoient `donnee_perimee: true` sur le cache vieilli, et `donnee_disponible: false` sur un cache vide. L'API Anthropic répond bien avec ce proxy (c'est elle qui a renvoyé le refus de crédit).
 
@@ -45,7 +47,7 @@ Spec : `.scratch/chatbot-wrc/spec.md`. Vocabulaire : `GLOSSARY.md`.
 
 - **Tiennent bien** : aucune donnée de saison ou d'une autre année inventée sur 2019, WRC3, les temps intermédiaires ou le pronostic (30 à 34) ; Rossel non choisi (23) ; hors sujet recentré sans répondre (26, 27) ; panne dite explicitement, et rien de mémoire sans donnée (36, 37) ; rien de conservé entre deux conversations (38) ; fraîcheur partout.
 - **Corrections du prompt confirmées** : Q22 rappelle l'outil avec WRC2 ; Q13 et Q15 ne regroupent plus par nationalité et ne font plus d'ajout technique ; Q15 compte bien 42 équipages WRC2 ; Q35 nomme la saison 2026.
-- **Q4, écart grave** : « Evans a fini sur le podium de 12 des 13 rallyes » est faux (6 d'après l'outil), et présenté comme un fait. Haiku s'est corrigé de lui-même en Q5, avec les 6 bons rallyes. Une statistique comptée par le modèle n'est donc pas fiable. Dans le même message : « la saison 2027 vient de démarrer », faux.
+- **Q4, écart grave** : « Evans a fini sur le podium de 12 des 13 rallyes » est faux (6 d'après l'outil), et présenté comme un fait. Haiku s'est corrigé de lui-même en Q5, avec les 6 bons rallyes. Un décompte fait par le modèle n'est donc pas fiable. Dans le même message : « la saison 2027 vient de démarrer », faux.
 - **Q18** : correction spontanée d'une réponse précédente qui n'en avait pas besoin.
 - **Vocabulaire** : « au général » (Q10), « classement général » (Q22), « manche » (Q25), « course » (Q29), malgré le prompt.
 - **Noms mal recopiés** : Domża{ł}a (Q10), Marúo (Q11), Dapràa (Q15) ; « sa copilote » supposé pour Janni Hussi (Q22).
@@ -53,6 +55,28 @@ Spec : `.scratch/chatbot-wrc/spec.md`. Vocabulaire : `GLOSSARY.md`.
 - **Mémoire** : Ogier « sur Toyota » en 2019 (Q31, faux à ma connaissance : Citroën) ; « huit titres » (Q17, sans doute dépassé) ; Super Rally mal expliqué, « plus classé comme un équipage normal » (Q29), alors que le glossaire parle d'un retour avec pénalité. Tout est annoncé comme venant de la mémoire.
 - **Ton** : tutoiement respecté, mais nettement moins d'enthousiasme et d'humour qu'avec Opus (spec, user story 2).
 - **Fuite de vocabulaire interne** : « pas de nature de temps particulière » (Q12).
-- **Q36** : filtre sur WRC1 sans qu'on le demande, et doute à tort du caractère définitif du classement à cause de la spéciale interrompue.
+- **Q36** : filtre sur WRC1 sans qu'on le demande, et doute à tort du caractère définitif du classement du rallye à cause de la spéciale interrompue.
 
 Ces écarts sont consignés, pas corrigés : le prompt n'a pas changé après ce passage.
+
+**Revue de code du commit `a5cb62c` (30 octobre 2026)** :
+
+- **Historique rétabli** : l'en-tête du passage sur Opus et le « Reste à faire » avaient été réécrits ; ils reviennent tels quels, et la case du passage complet est décochée. Le passage sur Haiku date aussi du 30 octobre.
+- **« Reste à faire »** : le passage sur Haiku couvre le point 1 et les questions 36 et 37. Il manque la question 38 dans le chat Streamlit : une conversation neuve dans l'agent ne teste pas le rechargement de la page. Tout le passage sur Haiku s'est fait hors du chat, alors que la liste demande le chat.
+- **Rattrapage des refus** : `fallbacks` et son beta reviennent pour Fable 5.1, Opus 5.5, Opus 5 et Sonnet 5.5 ; seul Haiku reste sans rattrapage, avec `REPONSE_REFUS`.
+- **Effort** : la documentation ne constate pas d'appels sautés. Elle prévient qu'à `low`, avec un long prompt, le modèle risque davantage de sauter une recherche, et elle conseille `low` pour le chat. `medium` reste le défaut de Haiku, mais aucun essai à `low` n'a été mesuré.
+- **Choix du modèle** : seul Haiku a été évalué, pas Sonnet 5.5 (2 $ / 10 $ par million de jetons). Le rapport qualité/prix demandé par la spec reste à arbitrer.
+- **Prompt corrigé, pas encore revérifié** : décomptes absents de l'outil, démarrage d'une saison, pénalités hors des équipages cités, « au général » et « course », enthousiasme. À repasser : questions 4, 5, 10, 11, 22, 25 et 29.
+
+**Question 38 (30 octobre 2026)** : validée à la main dans le chat Streamlit. Le passage complet est donc terminé, et sa case est cochée.
+
+**Revérification du prompt corrigé (30 octobre 2026)** : questions 4, 5, 10, 11, 20 à 22, 25 et 29 sur `claude-haiku-5-5`, une seule fois chacune, dans l'agent réel (hors Streamlit), sur une copie du cache. Coût : environ 0,03 $. Les chiffres ont été comparés aux résultats bruts des outils pour 4, 5, 10, 11 et 20 à 22 : positions, temps, écarts, points, abandons, pénalités et Super Rally sont exacts.
+
+- **Corrigés sur ce passage** : plus de décompte inventé ni de « saison 2027 démarrée » (Q4) ; pénalités de Q11 présentes, hors du top affiché ; plus de « au général » (Q10), de « classement général » (Q22) ni de « manche » (Q25) ; noms de Q11 bien recopiés.
+- **Q10, nouvel écart** : « neuf équipages […] tous en WRC2 » est faux, car Sordo est en WRC1 (8 WRC2, 1 WRC1), et la même liste le dit. Un décompte reste donc possible malgré la règle.
+- **Q4, nouvel écart** : « le championnat ne compte que des rallyes où le pilote a marqué des points » est absent de l'outil et présenté comme un fait.
+- **Q21** : « cet écart vaut dans les deux catégories » est faux, car les deux pilotes sont en WRC1.
+- **Vocabulaire encore présent** : « épreuve » (Q4), « course » (Q11, Q29).
+- **Nom encore mal recopié** : Domżała (Q10).
+- **Q29** : la pénalité du Super Rally n'est pas mentionnée, et « est repartis » est une faute.
+- **Ton** : toujours sobre, sans gain net d'enthousiasme.
